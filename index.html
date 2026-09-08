@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bölge Fatihi — Prototip</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="hud">
+    <div class="title-row">
+      <h1>⛨ BÖLGE <span>FATİHİ</span></h1>
+      <button id="info-btn">i</button>
+    </div>
+    <div class="stats-row">
+      <div class="stat gold"><span class="label">ALTIN</span><span class="value-row"><span class="value" id="gold-val">0</span><span id="gold-popup-zone"></span></span></div>
+      <div class="stat army"><span class="label">ASKER</span><span class="value" id="army-val">0</span></div>
+      <div class="stat turn"><span class="label">TUR</span><span class="value" id="turn-val">0</span></div>
+    </div>
+  </div>
+
+  <div id="map-wrap">
+    <canvas id="map"></canvas>
+  </div>
+
+  <div id="build-tray"></div>
+
+  <div id="footnote">Bina kartını sürükleyip bir bölgeye bırak · ya da bölgeye dokun</div>
+
+  <div id="toast-zone"></div>
+
+  <div id="overlay"></div>
+  <div id="sheet">
+    <div class="sheet-head">
+      <div class="sheet-icon" id="sheet-icon">🏳️</div>
+      <div>
+        <div class="sheet-title" id="sheet-title">Bölge</div>
+      </div>
+    </div>
+    <div class="sheet-sub" id="sheet-sub"></div>
+    <div id="sheet-actions"></div>
+    <button id="sheet-close">Kapat</button>
+  </div>
+
+  <div id="modal-overlay">
+    <div class="modal-box" id="modal-box"></div>
+  </div>
+
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>

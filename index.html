@@ -6,49 +6,95 @@
 <title>Bölge Fatihi</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<!-- Tek aile: Inter. Sistemde SF Pro varsa o kullanılıyor (yığında önce),
+     yoksa Inter iniyor. Latin-ext Türkçe glifleri taşır. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<!-- ======= Açılış — bir "oyun ekranı", dashboard değil ======= -->
+<!-- ======= Açılış =======
+     Ekranı dolduran karo düzeni: solda seçili modun büyük önizlemesi, sağda
+     diğer modlar. Her karonun İÇİNDE kendi harita önizlemesi var ve o
+     önizleme modun zafer koşulunu gösteriyor (Geçit modunda altı geçit ve
+     ticaret yolları, klasik modda karargâh→hedef). Harita böylece boş bir
+     arka plan olmaktan çıkıp seçimin kendisi oluyor. -->
+<!-- ======= Açılış: üç sütunlu komuta panosu ======= -->
 <div id="lobby">
-  <canvas id="splash-map" class="splash-map"></canvas>
-  <div class="splash-vignette"></div>
-
-  <div class="splash">
-    <svg class="splash-mark" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4">
-      <path d="M16 3 L27 7 V16 C27 23 22 27.5 16 29.5 C10 27.5 5 23 5 16 V7 Z"/>
-      <path d="M16 3 V29.5 M9 11 H23 M9 18 H23" stroke-width="1"/>
-    </svg>
-    <div class="splash-title">BÖLGE FATİHİ</div>
-    <p class="splash-stat" id="splash-stat" hidden></p>
-
-    <button class="splash-play" id="play-campaign">SEFERİ BAŞLAT</button>
-
-    <div class="splash-locked-row">
-      <span>Çok Oyunculu · Yakında</span>
-      <span>Sınırsız Harita · Yakında</span>
+  <header class="top">
+    <div class="brandblk">
+      <div class="brand">BÖLGE FATİHİ</div>
+      <div class="brandsub">SÜRÜM 0.1</div>
     </div>
+    <nav class="nav">
+      <button class="navb is-on"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 L12 3.5 L21 10.5 V20 H14.5 V14.5 H9.5 V20 H3 Z"/></svg><span>ANA EKRAN</span></button>
+      <button class="navb" data-soon="Harekât haritası"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5 L9 4 L15 6.5 L21 4 V17.5 L15 20 L9 17.5 L3 20 Z"/><path d="M9 4 V17.5 M15 6.5 V20"/></svg><span>HAREKÂT HARİTASI</span></button>
+      <button class="navb" data-soon="Mağaza"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5 H5.5 L7.5 15 H18 L20 8 H6.5"/><circle cx="9" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></svg><span>MAĞAZA</span></button>
+      <button class="navb" data-soon="Topluluk"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8.5" r="3"/><path d="M3.5 19 C3.5 15.5 6 14 9 14 C12 14 14.5 15.5 14.5 19"/><path d="M16 6.4 A3 3 0 0 1 16 14.6 M17.5 14.4 C19.8 15.1 21 16.7 21 19"/></svg><span>TOPLULUK</span></button>
+      <button class="navb" data-soon="Profil"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20 C4.5 15.8 7.8 13.6 12 13.6 C16.2 13.6 19.5 15.8 19.5 20"/></svg><span>PROFİL</span></button>
+    </nav>
+    <div class="topright">
+      <div class="who">
+        <svg class="flg" viewBox="0 0 30 20" aria-label="Türkiye">
+          <rect width="30" height="20" fill="#d4353f"/>
+          <circle cx="11.6" cy="10" r="5" fill="#fff"/><circle cx="13.5" cy="10" r="4" fill="#d4353f"/>
+          <path d="M18.7 10 L21 10.7 L19.6 8.8 L19.6 11.2 L21 9.3 Z" fill="#fff"/>
+        </svg>
+        <input id="me-tag" class="tag" maxlength="4" spellcheck="false" autocomplete="off" aria-label="Etiket">
+        <input id="me-name" class="nm" maxlength="18" spellcheck="false" autocomplete="off" aria-label="Komutan adı">
+      </div>
+    </div>
+  </header>
 
-    <button class="splash-link" id="open-store">Mağaza</button>
-  </div>
+  <main class="cols">
+    <!-- ===== ORTA ===== -->
+    <section class="card">
+      <div class="card-h">OYUN MODLARI</div>
+      <div class="card-b mid">
+        <div class="hero">
+          <canvas id="lo-hero"></canvas>
+          <div class="hero-in">
+            <div class="hero-txt">
+              <h2 id="hero-n">Geçit Seferi</h2>
+              <p id="hero-d"></p>
+            </div>
+            <button class="btn btn-go" id="play-campaign">BAŞLAT</button>
+          </div>
+        </div>
+        <div class="subrow" id="subrow"></div>
+      </div>
+    </section>
 
-  <span class="splash-version">v0.1</span>
+    <!-- ===== SAĞ ===== -->
+    <div class="rightcol">
+      <section class="card">
+        <div class="card-h">MAĞAZA</div>
+        <div class="card-b">
+          <div class="shop">
+            <div class="item"><canvas class="item-a" id="onz-renk"></canvas><b>Cephe Renkleri</b><span class="pri">Yakında</span></div>
+            <div class="item"><canvas class="item-a" id="onz-pafta"></canvas><b>Pafta Teması</b><span class="pri">Yakında</span></div>
+          </div>
+          <p class="note">Ücretsiz oyun — hiçbiri parayla satılmayacak, seferlerle açılacak.</p>
+        </div>
+      </section>
+
+      <section class="card grow">
+        <div class="card-h">YOL HARİTASI</div>
+        <div class="card-b">
+          <ul class="road">
+            <li class="now"><div><b>Geçit Seferi</b><small>Tek kişilik · oynanıyor</small></div><em>Oynanıyor</em></li>
+            <li><div><b>Çok Oyunculu</b><small>Aynı haritada rakipler</small></div><em>Sırada</em></li>
+            <li><div><b>Geçiş Vergisi</b><small>Hatlar komşudan geçer</small></div><em>Sırada</em></li>
+            <li><div><b>Diplomasi</b><small>Ateşkes · ittifak · ihanet</small></div><em>Araştırma</em></li>
+            <li><div><b>Dünya Haritası</b><small>Süveyş · Panama · Malakka</small></div><em>Araştırma</em></li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="toast" id="lo-toast" hidden></div>
 </div>
-
-<!-- Mağaza — mevcut modal sistemi yeniden kullanılıyor, ayrı bir dashboard sayfası değil -->
-<template id="store-template">
-  <h2>Mağaza</h2>
-  <div class="store-list">
-    <div class="store-item"><span>🎨</span><div><b>Cephe Renkleri</b><small>Alternatif komutanlık paletleri</small></div><em>YAKINDA</em></div>
-    <div class="store-item"><span>🗺️</span><div><b>Harita Temaları</b><small>Farklı arazi ve atmosfer görünümleri</small></div><em>YAKINDA</em></div>
-    <div class="store-item"><span>🎞️</span><div><b>Hareketli Arka Planlar</b><small>Menüde oynayan animasyonlu sahneler</small></div><em>YAKINDA</em></div>
-    <div class="store-item"><span>🔊</span><div><b>Ses Paketi</b><small>Saldırı, fetih ve tur geçişleri için tam ses</small></div><em>YAKINDA</em></div>
-  </div>
-  <p class="sheet-sub" style="margin-top:12px">Hiçbir ürün satın alınamaz — Bölge Fatihi şu an tamamen ücretsiz.</p>
-  <button class="action-btn" id="store-close"><span><span class="a-name">Kapat</span></span></button>
-</template>
 
 <!-- ======= Oyun Ekranı ======= -->
 <div id="app" hidden>
@@ -58,6 +104,10 @@
       <div class="hud-stat gold"><span class="hud-ico">🪙</span><span class="hud-val-row"><span class="hud-val" id="gold-val">0</span><span id="gold-popup-zone"></span></span></div>
       <div class="hud-sep"></div>
       <div class="hud-stat army"><span class="hud-ico">⚔</span><span class="hud-val" id="army-val">0/0</span></div>
+      <div class="hud-sep"></div>
+      <div class="hud-stat supply"><span class="hud-ico">⛽</span><span class="hud-val" id="supply-val">100%</span></div>
+      <div class="hud-sep"></div>
+      <div class="hud-stat gate"><span class="hud-ico">⛰</span><span class="hud-val" id="gate-val">0/6</span></div>
       <div class="hud-sep"></div>
       <div class="hud-stat turn"><span class="hud-ico">◉</span><span class="hud-val" id="turn-val">YIL 2026 · Ç1</span></div>
     </div>
@@ -90,6 +140,11 @@
   <div id="menu-sheet">
     <div id="build-tray"></div>
     <p id="footnote">Bina kartını kendi bölgene sürükle · ☢ füzeyi istediğin yere · ya da bölgeye dokun</p>
+    <!-- Sefer sırasında çıkış yolu: oyuncu oyuna kilitlenmiş hissetmesin. -->
+    <div id="menu-actions">
+      <button class="menu-act" id="menu-help">Nasıl Oynanır</button>
+      <button class="menu-act menu-act--quit" id="menu-quit">Seferden Çık</button>
+    </div>
   </div>
 
   <!-- Kompakt alt sekme çubuğu: mobil strateji oyunu HUD'ı, kart tepsisi değil -->
@@ -116,6 +171,10 @@
     </button>
   </nav>
 
+  <!-- Sağ tık / basılı tut ile açılan bağlama menüsü. İçeriği sabit değil:
+       yalnızca o bölgede O AN yapılabilecek eylemler listelenir. -->
+  <div id="ctx-menu" hidden></div>
+
   <div id="toast-zone"></div>
 
   <div id="overlay"></div>
@@ -139,6 +198,7 @@
 </div>
 
 <script src="game.js"></script>
+<script src="harita-tr.js"></script>
 <script src="lobby.js"></script>
 </body>
 </html>

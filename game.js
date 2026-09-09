@@ -71,6 +71,21 @@
     ["Iğdır",39.92,44.04],["Ardahan",41.11,42.70],["Artvin",41.18,41.82],
     ["Bayburt",40.26,40.23],["Tunceli",39.11,39.55]
   ].filter(function(p){ return p[1]!==0; });
+  /* ================= Geçitler =================
+     Tasarımın kalbi: kazanmak toprak toplamak değil, ORDULARIN VE TİCARETİN
+     geçmek zorunda olduğu daracık yerleri tutmak. Bunlar uydurulmuş kareler
+     değil, Anadolu'nun gerçek boğaz ve dağ geçitleri — tarih boyunca da bu
+     yüzden savaşılan yerler. Dünya haritasına geçildiğinde aynı liste
+     Süveyş / Panama / Cebelitarık / Malakka / Hürmüz olacak. */
+  var GECITLER=[
+    {ad:"İstanbul Boğazı",  kisa:"BOĞAZ",   lat:41.10, lon:29.05},
+    {ad:"Çanakkale Boğazı", kisa:"ÇANAK",   lat:40.20, lon:26.40},
+    {ad:"Gülek Boğazı",     kisa:"GÜLEK",   lat:37.28, lon:34.78},
+    {ad:"Belen Geçidi",     kisa:"BELEN",   lat:36.49, lon:36.20},
+    {ad:"Zigana Geçidi",    kisa:"ZİGANA",  lat:40.65, lon:39.40},
+    {ad:"Kop Geçidi",       kisa:"KOP",     lat:40.05, lon:40.35}
+  ];
+
   var SEA_FILL="#0d1922";
   /* Palet artık gameplay anlamı taşıyor: lacivert=sen, bordo=düşman,
      mat gri-taş=nötr, amber=kaynak/aksiyon. Yeşil bilinçli olarak
@@ -235,7 +250,45 @@
   var BOT_COLORS={kolay:"#a8863f", orta:"#7a5a94", zor:"#b5432f"};
   var BOSS_COLOR="#82283a";
 
-  var state={gold:60, army:10, maxArmy:60, turn:0, gameOver:false, started:false, raidCount:0, lastExpansionBonus:0};
+  /* ================= Sefer modları =================
+     Lobideki kartlar süs değil: her biri gerçekten motoru değiştiriyor —
+     botların zorluğu, tur/baskın/bot saatlerinin hızı ve açılış altını.
+     Kurallar burada duruyor (motorun işi), lobi yalnızca okuyup gösteriyor. */
+  var MODES={
+    gecit:{
+      name:"Geçit", tag:"YENİ",
+      desc:"4/6 geçidi kontrol et. Rotanı koru, rakibin ikmalini kes.",
+      hedef:{tip:"gecit", gerek:4},
+      bots:null,
+      gold:70, tick:2000, raid:24000, bot:6000
+    },
+    sefer:{
+      name:"Sefer", tag:"KLASİK",
+      desc:"Rakip karargâhına ulaş. Haritayı boydan boya geçmen gerekir.",
+      hedef:{tip:"baskent"},
+      bots:null,                       // null = rastgele karışık zorluk
+      gold:60, tick:2000, raid:28000, bot:7000
+    },
+    kusatma:{
+      name:"Kuşatma", tag:"ZOR",
+      desc:"Dar alanda savunmayı kır. Üç cephe de zor, baskınlar sık.",
+      hedef:{tip:"baskent"},
+      bots:["zor","zor","zor"],
+      gold:40, tick:2000, raid:18000, bot:5000
+    },
+    blitz:{
+      name:"Blitz", tag:"HIZLI",
+      desc:"Rakip hazırlanırken üstünlüğü ele geçir. Saat iki kat hızlı.",
+      hedef:{tip:"baskent"},
+      bots:["orta","orta","zor"],
+      gold:95, tick:1000, raid:16000, bot:3800
+    }
+  };
+  var activeMode="gecit";
+  var LOOP={tick:2000, raid:28000, bot:7000};
+
+  var state={gold:60, army:10, maxArmy:60, turn:0, gameOver:false, started:false, raidCount:0, lastExpansionBonus:0,
+             ticaret:0, konvoyKaybi:0, fetih:0};
 
   var pixelRegionId=[];      // [y][x] -> region id or -1
   var landPixelsList=[];     // flat {x,y,regionId,noise,isBorder}
@@ -543,6 +596,20 @@
     });
 
     assignBots();
+
+    /* Her geçidi, koordinatının düştüğü ile bağla. Denize düşerse en yakın
+       kara hücresine çekilir — Voronoi bölgeleri il merkezlerinden üretildiği
+       için boğazlar sahil illerine oturuyor. */
+    GECITLER.forEach(function(g){
+      var gx=Math.round(lonToX(g.lon)), gy=Math.round(latToY(g.lat));
+      var rid = (gy>=0&&gy<GRID_H&&gx>=0&&gx<GRID_W) ? pixelRegionId[gy][gx] : -1;
+      if(rid<0){
+        var yakin=nearestMainland(gx,gy);
+        rid = yakin ? pixelRegionId[yakin[1]][yakin[0]] : -1;
+      }
+      g.gx=gx; g.gy=gy; g.regionId=rid;
+      if(rid>=0 && regions[rid]) regions[rid].gecit=g;
+    });
   }
 
   function assignBots(){
@@ -575,7 +642,7 @@
     bots=[];
     for(var i=0;i<seedCount;i++){
       var diffKey=diffs[i % diffs.length];
-      bots.push({id:i, difficulty:diffKey, power:BOT_DIFF[diffKey].basePower});
+      bots.push({id:i, difficulty:diffKey, power:BOT_DIFF[diffKey].basePower, ateskes:0});
     }
     enemyRegions.forEach(function(r){ r.botId=assign[r.id]; });
   }
@@ -755,10 +822,27 @@
   }
 
   // Tahkimat yalnızca sınırına dayandığın bölgede görünür: genişleme sırası da bir karar.
-  function isScouted(region){
-    var seen=false;
-    region.neighbors.forEach(function(nid){ if(regions[nid].owner==="player") seen=true; });
-    return seen;
+  /* ---- KEŞİF (Phase 3) ----
+     Tek mekanik, üç kademe:
+       0 bilinmiyor — menzil dışı, hiçbir sayı yok
+       1 tahmini    — komşusun; savunmayı ARALIK olarak görürsün, tipleri değil
+       2 kesin      — keşif yaptın; gerçek sayı ve tahkimat tipleri açık
+     Böylece "saldırayım mı, önce keşif mi yapayım?" gerçek bir karar olur. */
+  var KESIF_BEDEL=35, KESIF_SURE=12;
+
+  function istihbarat(region){
+    if(region.owner==="player") return 2;
+    if(region.kesif && region.kesif>state.turn) return 2;
+    var komsu=false;
+    region.neighbors.forEach(function(nid){ if(regions[nid].owner==="player") komsu=true; });
+    return komsu ? 1 : 0;
+  }
+  function isScouted(region){ return istihbarat(region)>=1; }
+
+  // Tahmini kademede gösterilen aralık — uydurma kesinlik yok.
+  function savunmaAraligi(region, atkKey){
+    var v=defenseAgainst(region, atkKey).value;
+    return {alt:Math.max(1,Math.round(v*0.75)), ust:Math.round(v*1.25)};
   }
 
   // Bölgenin ham asker gücü — tahkimat katkısı hariç. Başarısız saldırılar bunu aşındırır.
@@ -805,10 +889,16 @@
     });
 
     var cep=cepheAnalizi(region, saldiran);
-    var toplam = mult * cep.kusatma * cep.arazi;
+    /* İkmal: tam beslenen cepheden saldırı normal, kesik bir çıkıntıdan
+       saldırı %50'ye kadar pahalı. Zincirin son halkası —
+       Bölge → Rota → İkmal → Geçit → Tahkimat → Saldırı. */
+    var ik=saldiriIkmali(region, saldiran);
+    var ikmalCarpani = 1 + (1 - ik/100)*0.5;
+    var toplam = mult * cep.kusatma * cep.arazi * ikmalCarpani;
 
     return {
       base:base, mult:mult, notes:notes, bypassed:bypassed, cephe:cep,
+      ikmal:ik, ikmalCarpani:ikmalCarpani,
       value:Math.max(1, Math.round(base*toplam))
     };
   }
@@ -1125,36 +1215,154 @@
 
   function invalidateRoutes(){ routesDirty=true; startFX(); }
 
+  /* ---- ROTA SİSTEMİ (Phase 1) ----
+     Eski hâli sahteydi: her fabrikayı en yakın kente DÜZ ÇİZGİYLE bağlıyor,
+     hat başına sabit +4 altın veriyordu. Toprakla ilgisi yoktu, kesilemezdi.
+
+     Artık rota, başkentten üretim bölgelerine giden GERÇEK bir yol: mevcut
+     regions[].neighbors grafiği üzerinde, yalnızca senin toprağından geçerek
+     BFS ile bulunuyor. Yeni bir veri modeli kurulmadı; graf zaten vardı.
+
+     Üç durum:
+       güvenli — yol var, üstündeki hiçbir bölge düşmana komşu değil
+       riskli  — yol var ama bir düğüm düşman sınırında
+       kesildi — kendi toprağından yol kalmamış (bölge düştü ya da kavruldu)
+
+     Ve oyunun kimliği burada mekanikleşiyor: yolun üstündeki her GEÇİT
+     geliri artırıyor. "Toprağı değil, geçişi kontrol et." */
+  var ROTA_GELIR={guvenli:5, riskli:2, kesildi:0};
+  var GECIT_GELIR=3;               // yolun üstündeki her kendi geçidin
+
+  function benimMi(r){ return r && r.owner==="player" && !isScorched(r); }
+
+  // Başkentten hedefe, yalnızca kendi toprağından geçen en kısa yol.
+  function yolBul(hedefId){
+    if(!benimMi(regions[0]) || !benimMi(regions[hedefId])) return null;
+    if(hedefId===0) return [0];
+    var onceki={0:-1}, kuyruk=[0], i=0;
+    while(i<kuyruk.length){
+      var cur=kuyruk[i++];
+      var komsular=Array.from(regions[cur].neighbors);
+      for(var k=0;k<komsular.length;k++){
+        var nid=komsular[k];
+        if(nid in onceki || !benimMi(regions[nid])) continue;
+        onceki[nid]=cur;
+        if(nid===hedefId){
+          var yol=[], c=nid;
+          while(c!==-1){ yol.unshift(c); c=onceki[c]; }
+          return yol;
+        }
+        kuyruk.push(nid);
+      }
+    }
+    return null;
+  }
+
+  /* ---- İKMAL (Phase 2) ----
+     Tek kaynak, tek sayı. Başkentten kendi toprağın üzerinden kaç adım
+     uzaktaysan ikmalin o kadar düşer; hiç ulaşılamıyorsa kesiktir.
+     Ayrı bir zamanlayıcı yok — rota önbelleğiyle aynı anda hesaplanıyor. */
+  var IKMAL_ADIM=12, IKMAL_TABAN=15;
+
+  function hesaplaIkmal(){
+    regions.forEach(function(r){ if(r.owner==="player") r.ikmal=0; else r.ikmal=null; });
+    if(!benimMi(regions[0])) return;
+    regions[0].ikmal=100;
+    var kuyruk=[0], i=0, derinlik={0:0};
+    while(i<kuyruk.length){
+      var cur=kuyruk[i++];
+      regions[cur].neighbors.forEach(function(nid){
+        if(nid in derinlik || !benimMi(regions[nid])) return;
+        derinlik[nid]=derinlik[cur]+1;
+        regions[nid].ikmal=Math.max(IKMAL_TABAN, 100-derinlik[nid]*IKMAL_ADIM);
+        kuyruk.push(nid);
+      });
+    }
+  }
+
+  // Genel ikmal: HUD'da tek yüzde olarak görünen sayı.
+  function genelIkmal(){
+    if(routesDirty) rebuildRoutes();
+    var top=0, adet=0;
+    regions.forEach(function(r){
+      if(r.owner!=="player") return;
+      adet++; top+=(r.ikmal||0);
+    });
+    return adet ? Math.round(top/adet) : 0;
+  }
+
+  /* Saldırıya çıkarken: hedefe komşu kendi bölgelerinin EN İYİ ikmali.
+     İkmalsiz bir çıkıntıdan saldırmak pahalıya patlıyor. */
+  function saldiriIkmali(region, saldiran){
+    if(saldiran!=="player") return 100;              // botlar bu kuraldan muaf
+    var en=0;
+    region.neighbors.forEach(function(nid){
+      var n=regions[nid];
+      if(n.owner==="player" && (n.ikmal||0)>en) en=n.ikmal||0;
+    });
+    return en;
+  }
+
   function rebuildRoutes(){
     routesDirty=false;
+    hesaplaIkmal();
     workerRoutes=[];
     workers=[];
-    var fabrikalar=[], kentler=[];
+
+    // Üretim düğümleri: fabrika ve kentler. Başkent hub.
+    var hedefler=[];
     regions.forEach(function(r){
-      if(r.owner!=="player" || isScorched(r)) return;
-      if(r.building==="fabrika") fabrikalar.push(r);
-      else if(r.building==="kent") kentler.push(r);
+      if(r.owner!=="player") return;
+      if(r.building==="fabrika" || r.building==="kent") hedefler.push(r.id);
     });
-    if(!fabrikalar.length || !kentler.length) return;
+    if(!hedefler.length) return;
 
-    // Her fabrika en yakın kente bağlanır — konvoy sayısı kontrollü kalsın.
-    fabrikalar.forEach(function(f){
-      var a=regionCenter(f), en=null, enD=Infinity;
-      kentler.forEach(function(k){
-        var b=regionCenter(k);
-        var dd=dist2(a.x,a.y,b.x,b.y);
-        if(dd<enD){ enD=dd; en=b; }
+    hedefler.forEach(function(hid){
+      var yol=yolBul(hid);
+      if(!yol){
+        // Yol kesildi: gelir yok ama oyuncu bunu görsün diye kayıt kalıyor.
+        workerRoutes.push({nodes:[hid], pts:[regionCenter(regions[hid])],
+                           segLen:[], uzunluk:0, durum:"kesildi", gecit:0, gelir:0});
+        return;
+      }
+      var riskli=false, gecitSayisi=0;
+      yol.forEach(function(rid){
+        var reg=regions[rid];
+        if(reg.gecit) gecitSayisi++;
+        reg.neighbors.forEach(function(nid){
+          var nb=regions[nid];
+          if(nb.owner==="enemy") riskli=true;
+        });
       });
-      if(!en) return;
-      workerRoutes.push({ax:a.x, ay:a.y, bx:en.x, by:en.y});
+      var durum = riskli ? "riskli" : "guvenli";
+      var pts=yol.map(function(rid){ return regionCenter(regions[rid]); });
+      var segLen=[], toplam=0;
+      for(var i=0;i<pts.length-1;i++){
+        var d=Math.hypot(pts[i+1].x-pts[i].x, pts[i+1].y-pts[i].y);
+        segLen.push(d); toplam+=d;
+      }
+      workerRoutes.push({
+        nodes:yol, pts:pts, segLen:segLen, uzunluk:toplam,
+        durum:durum, gecit:gecitSayisi,
+        gelir: ROTA_GELIR[durum] + gecitSayisi*GECIT_GELIR
+      });
     });
 
-    // Hat başına iki işçi, zıt yönlerde: yol hep canlı görünür.
+    // Kesik olmayan her hatta iki işçi, zıt yönlerde.
     workerRoutes.forEach(function(rt, ri){
+      if(rt.durum==="kesildi" || rt.uzunluk<=0) return;
       workers.push({route:ri, t:Math.random(), dir:1});
       workers.push({route:ri, t:Math.random(), dir:-1});
     });
     if(workers.length) startFX();
+  }
+
+  // Rota özeti: HUD ve maç sonu raporu bunu okuyor.
+  function rotaDurumu(){
+    if(routesDirty) rebuildRoutes();
+    var o={guvenli:0, riskli:0, kesildi:0, gelir:0, toplam:workerRoutes.length};
+    workerRoutes.forEach(function(rt){ o[rt.durum]++; o.gelir+=rt.gelir; });
+    return o;
   }
 
   function stepWorkers(dt){
@@ -1167,26 +1375,47 @@
     }
   }
 
+  // Çok parçalı yol üzerinde t (0..1) konumunu bul.
+  function yolNoktasi(rt, t){
+    if(rt.pts.length<2) return rt.pts[0];
+    var hedef=t*rt.uzunluk, birikim=0;
+    for(var i=0;i<rt.segLen.length;i++){
+      if(birikim+rt.segLen[i]>=hedef || i===rt.segLen.length-1){
+        var k=rt.segLen[i]>0 ? (hedef-birikim)/rt.segLen[i] : 0;
+        k=Math.max(0,Math.min(1,k));
+        return {x:rt.pts[i].x+(rt.pts[i+1].x-rt.pts[i].x)*k,
+                y:rt.pts[i].y+(rt.pts[i+1].y-rt.pts[i].y)*k};
+      }
+      birikim+=rt.segLen[i];
+    }
+    return rt.pts[rt.pts.length-1];
+  }
+
+  var ROTA_RENK={guvenli:"rgba(240,201,68,0.30)", riskli:"rgba(224,138,114,0.34)"};
+
   function paintWorkers(){
     if(!workerRoutes.length) return;
-    // Yol izi: soluk bir hat, üstünde hareket eden işçi noktaları.
-    ctx.strokeStyle="rgba(240,201,68,0.22)";
+    // Yol izi artık düz çizgi değil, bölgeden bölgeye geçen gerçek güzergâh.
     ctx.lineWidth=1;
     for(var r=0;r<workerRoutes.length;r++){
       var rt=workerRoutes[r];
+      if(rt.durum==="kesildi" || rt.pts.length<2) continue;
+      ctx.strokeStyle=ROTA_RENK[rt.durum];
+      ctx.setLineDash(rt.durum==="riskli" ? [3,3] : []);
       ctx.beginPath();
-      ctx.moveTo(rt.ax, rt.ay);
-      ctx.lineTo(rt.bx, rt.by);
+      ctx.moveTo(rt.pts[0].x, rt.pts[0].y);
+      for(var i=1;i<rt.pts.length;i++) ctx.lineTo(rt.pts[i].x, rt.pts[i].y);
       ctx.stroke();
     }
-    for(var i=0;i<workers.length;i++){
-      var w=workers[i], rt2=workerRoutes[w.route];
-      if(!rt2) continue;
-      var x=rt2.ax+(rt2.bx-rt2.ax)*w.t, y=rt2.ay+(rt2.by-rt2.ay)*w.t;
+    ctx.setLineDash([]);
+    for(var j=0;j<workers.length;j++){
+      var w=workers[j], rt2=workerRoutes[w.route];
+      if(!rt2 || rt2.durum==="kesildi") continue;
+      var p=yolNoktasi(rt2, w.t);
       ctx.fillStyle="#0b1215";
-      ctx.fillRect(Math.round(x)-1, Math.round(y)-1, 4, 4);
+      ctx.fillRect(Math.round(p.x)-1, Math.round(p.y)-1, 4, 4);
       ctx.fillStyle = w.dir>0 ? "#f0c944" : "#cfc4a4";   // dolu giden / boş dönen
-      ctx.fillRect(Math.round(x), Math.round(y), 2, 2);
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 2, 2);
     }
   }
 
@@ -1329,6 +1558,17 @@
     document.getElementById("gold-val").textContent=state.gold;
     document.getElementById("army-val").textContent=state.army+"/"+state.maxArmy;
     document.getElementById("turn-val").textContent=zamanEtiketi(state.turn);
+    var ik=genelIkmal();
+    var ikEl=document.getElementById("supply-val");
+    if(ikEl){
+      ikEl.textContent=ik+"%";
+      var kap=ikEl.parentNode;
+      kap.classList.toggle("warn", ik<70 && ik>=45);
+      kap.classList.toggle("bad", ik<45);
+    }
+    var gd=gecitDurumu();
+    var gEl=document.getElementById("gate-val");
+    if(gEl) gEl.textContent=gd.tut+"/"+gd.toplam;
     renderScoreboard();
     updateControlBar();
     }
@@ -1486,10 +1726,42 @@
         region.owner="player";
         animating=null;
         bfStatBump("toplamFetih");
+        state.fetih++;
         drawMap();
+        // Geçit ele geçtiyse oyuncu bunu ANINDA bilmeli — modun tek ölçüsü bu.
+        if(region.gecit){
+          var gd=gecitDurumu();
+          showToast("⛰ "+region.gecit.ad+" senin"+
+            (gd.gerek ? " — "+gd.tut+"/"+gd.gerek+" geçit" : ""));
+        }
         doneCallback && doneCallback();
+        checkVictory();
       }
     }, 45);
+  }
+
+  /* Kaç geçit sende? Hem zafer kontrolü hem arayüz bunu okuyor. */
+  function gecitDurumu(){
+    var tut=0, toplam=0;
+    GECITLER.forEach(function(g){
+      if(g.regionId<0) return;
+      toplam++;
+      if(regions[g.regionId] && regions[g.regionId].owner==="player") tut++;
+    });
+    var h=(MODES[activeMode]||{}).hedef||{};
+    return {tut:tut, toplam:toplam, gerek:h.gerek||0};
+  }
+
+  /* Zafer artık tek bir ile bağlı değil: seçilen modun hedefine bakıyor.
+     Geçit modunda "haritayı süpür" yok — dar noktaları tutmak yetiyor. */
+  function checkVictory(){
+    if(state.gameOver) return;
+    var h=(MODES[activeMode]||{}).hedef||{tip:"baskent"};
+    if(h.tip==="gecit"){
+      if(gecitDurumu().tut>=h.gerek) setTimeout(showVictory, 400);
+    }else if(regions[1] && regions[1].owner==="player"){
+      setTimeout(showVictory, 400);
+    }
   }
 
   function flashRegion(rid){
@@ -1547,6 +1819,12 @@
       openBuildPanel(region);
       return;
     }
+    // Uzaktaki bölgeyi de incelemeye izin ver: bağlama menüsünden "bilgi"
+    // seçildiğinde oyuncu boş bir uyarı yerine bildiği kadarını görsün.
+    if(!isAdjacentToPlayer(region) && istihbarat(region)>=1){
+      openAttackPanel(region);
+      return;
+    }
     if(!isAdjacentToPlayer(region)){
       showToast("⚠️ Önce komşu bölgeleri ele geçirmelisin.");
       return;
@@ -1584,7 +1862,9 @@
     currentSel=region;
     drawMap();
     var isBoss = region.type==="enemyCapital";
-    var known = isScouted(region);
+    var seviye = istihbarat(region);
+    var known = seviye>=1;
+    var kesin = seviye>=2;
     var structs = defenseStructures(region);
     var atkKey = "piyade";
 
@@ -1712,12 +1992,15 @@
         var a=ATTACKS[k], av=attackAvailability(k), d=defenseAgainst(region,k);
         var tag;
         if(!known) tag="<span class='at-eff'>tahkimat bilinmiyor</span>";
+        else if(!kesin) tag="<span class='at-eff'>tahkimat tipi belirsiz — keşif gerek</span>";
         else if(d.bypassed.length) tag="<span class='at-eff good'>"+d.bypassed.map(function(n){ return BUILDINGS[n].name; }).join(", ")+" aşılır</span>";
         else if(d.notes.length) tag="<span class='at-eff bad'>"+d.notes.map(function(n){ return BUILDINGS[n.key].name+" ×"+n.mult; }).join(" · ")+"</span>";
         else tag="<span class='at-eff'>engel yok</span>";
         return "<button class='atk-type"+(k===atkKey?" sel":"")+"' data-atk='"+k+"'"+(av.ok?"":" disabled")+">"+
           "<span class='at-head'><span class='at-icon'>"+a.icon+"</span><span class='at-name'>"+a.name+"</span></span>"+
-          "<span class='at-need'>"+(known?d.value:"?")+"<span class='at-need-u'>🪖 gerek</span></span>"+
+          "<span class='at-need'>"+(kesin ? d.value
+              : (known ? (function(a){ return a.alt+"–"+a.ust; })(savunmaAraligi(region,k)) : "?"))+
+          "<span class='at-need-u'>🪖 gerek</span></span>"+
           tag+
           "<span class='at-cost'>"+(a.gold?("💰"+a.gold+(a.lootMult<1?" · ganimet ½":"")):"bedava")+"</span>"+
           (av.ok?"":"<span class='at-lock'>🔒 "+av.reason+"</span>")+
@@ -1748,7 +2031,9 @@
     }
     slider.addEventListener("input", function(){ setPct(parseInt(slider.value,10)); });
     document.getElementById("qty-min").addEventListener("click", function(){
-      var need=known?defenseAgainst(region,atkKey).value:region.defense;
+      // Kesin bilgi yoksa aralığın ÜST ucunu al — oyuncu eksik göndermesin.
+      var need=kesin ? defenseAgainst(region,atkKey).value
+               : (known ? savunmaAraligi(region,atkKey).ust : region.defense);
       setPct(state.army>0 ? Math.min(100,Math.ceil(need/state.army*100)) : 100);
     });
     document.querySelectorAll(".qty-preset[data-pct]").forEach(function(btn){
@@ -1781,7 +2066,7 @@
           showToast(atk.icon+" Zafer! "+loot+" altın ganimet"+
             (razed?" · "+BUILDINGS[atk.destroys].name+" yıkıldı":"")+
             (leftover>0?(" · "+leftover+" asker garnizon 🛡️"):"")+".");
-          if(isBoss){ setTimeout(showVictory, 400); }
+          // Zafer kontrolü artık animateCapture içinde, moda göre yapılıyor.
         });
       } else {
         var reduction=Math.max(1,Math.floor(sent*atk.softenMult));
@@ -1844,6 +2129,20 @@
     return {ok:true};
   }
 
+  // Bölgenin stratejik durumu: tek satır, ikmal ve rota. (madde 20)
+  function bolgeDurumSatiri(region){
+    if(routesDirty) rebuildRoutes();
+    var ik=region.ikmal==null?0:region.ikmal;
+    var ikEtiket = ik>=70?"İyi" : (ik>=40?"Zayıf" : (ik>0?"Kritik":"Kesik"));
+    var uzerinde=false;
+    workerRoutes.forEach(function(rt){
+      if(rt.durum!=="kesildi" && rt.nodes.indexOf(region.id)>=0) uzerinde=true;
+    });
+    return "<div class='stat-row'><span>İkmal</span><b>"+ikEtiket+" · %"+ik+"</b></div>"+
+           "<div class='stat-row'><span>Rota</span><b>"+(uzerinde?"Üzerinde":"Dışında")+"</b></div>"+
+           (region.gecit ? "<div class='stat-row'><span>Geçit</span><b>"+region.gecit.ad+"</b></div>" : "");
+  }
+
   function openBuildPanel(region){
     currentSel=region;
     drawMap();
@@ -1862,16 +2161,15 @@
         "<span class='a-desc'>Garnizon: "+(region.garrison||0)+" 🪖 — baskınlara karşı kalıcı savunma</span></span>"+
       "</button>";
 
-    var bodyHtml;
+    var bodyHtml=bolgeDurumSatiri(region)+"<div class='sheet-divider'></div>";
     if(isCapital){
-      bodyHtml = "<div class='built-row'><span style='font-size:22px'>🏰</span>"+
+      bodyHtml += "<div class='built-row'><span style='font-size:22px'>🏰</span>"+
         "<span>Asker ve altın üretiminin kalbi. Her tur otomatik üretim yapar. <b>Düşerse sefer biter</b> — garnizonunu boş bırakma.</span></div>";
     } else if(region.building){
       var b=BUILDINGS[region.building];
-      bodyHtml = "<div class='built-row'>"+symbolImg(region.building,"sym-img built-sym")+
+      bodyHtml += "<div class='built-row'>"+symbolImg(region.building,"sym-img built-sym")+
         "<span>Bu bölgede zaten <b>"+b.name+"</b> inşa edilmiş.<br><span class='built-desc'>"+b.desc+"</span></span></div>";
     } else {
-      bodyHtml="";
       Object.keys(BUILDINGS).forEach(function(key){
         var b=BUILDINGS[key];
         var canAfford = state.gold>=b.cost;
@@ -1994,6 +2292,126 @@
   }
   mapWrap.addEventListener("pointerup", ptrBitti);
   mapWrap.addEventListener("pointercancel", ptrBitti);
+
+  /* ================= Bağlama menüsü =================
+     Sol tık bilgi verir, sağ tık EYLEM verir. Menü sabit değil: bir bölgede
+     yapılamayan eylem hiç listelenmez, böylece oyuncu ölü satıra bakmaz.
+     Dokunmatikte aynı menü basılı tutunca açılır. */
+  var ctxMenu=document.getElementById("ctx-menu");
+  var ctxBasili=null;
+
+  function ctxKapat(){ if(ctxMenu) ctxMenu.hidden=true; }
+
+  function ateskesBedeli(bot){
+    // Zor bot pahalı barış ister; sayı okunur kalsın diye kabaca ölçekli.
+    return 40 + (BOT_DIFF[bot.difficulty] ? BOT_DIFF[bot.difficulty].basePower*4 : 20);
+  }
+
+  function ctxAc(region, cx, cy){
+    if(!ctxMenu || state.gameOver) return;
+    var benim = region.owner==="player";
+    var komsu = isAdjacentToPlayer(region);
+    var bot = (region.owner==="enemy" && region.botId!=null) ? bots[region.botId] : null;
+
+    var sahip = benim ? "Senin" : (region.owner==="enemy" ? "Düşman" : "Boş");
+    var alt = sahip + (region.gecit ? " · Geçit: "+region.gecit.ad : "");
+    if(benim && region.ikmal!=null) alt += " · İkmal %"+region.ikmal;
+
+    var h='<div class="cx-head"><div class="cx-ad">'+region.name+'</div>'+
+          '<div class="cx-alt">'+alt+'</div></div>';
+    var eylemler=[];
+
+    if(benim){
+      if(region.type!=="capital" || true) eylemler.push(["takviye","Takviye gönder",""]);
+      if(!region.building) eylemler.push(["bina","Bina kur",""]);
+    } else if(komsu){
+      eylemler.push(["saldir", region.owner==="enemy" ? "Saldır" : "Ele geçir", ""]);
+    }
+    if(!benim && region.owner==="enemy"){
+      var sv=istihbarat(region);
+      eylemler.push(["kesif",
+        sv>=2 ? "Keşif geçerli ("+(region.kesif-state.turn)+" tur)" : "Keşif yap",
+        sv>=2 ? "" : KESIF_BEDEL+" 🪙",
+        sv>=2 || state.gold<KESIF_BEDEL]);
+    }
+    if(bot){
+      var bedel=ateskesBedeli(bot);
+      var aktif = bot.ateskes>state.turn;
+      eylemler.push(["ateskes",
+        aktif ? "Ateşkes sürüyor ("+(bot.ateskes-state.turn)+" tur)" : "Ateşkes öner",
+        aktif ? "" : bedel+" 🪙", aktif || state.gold<bedel]);
+    }
+    eylemler.push(["bilgi","Bölge bilgisi",""]);
+
+    h += eylemler.map(function(e){
+      return '<button data-cx="'+e[0]+'"'+(e[3]?' disabled':'')+
+             (e[0]==="saldir"?' class="cx-danger"':'')+'>'+
+             '<span>'+e[1]+'</span>'+(e[2]?'<em>'+e[2]+'</em>':'')+'</button>';
+    }).join("");
+
+    ctxMenu.innerHTML=h;
+    ctxMenu.hidden=false;
+    // Ekran dışına taşmasın
+    var kutu=ctxMenu.getBoundingClientRect();
+    var ax=Math.min(cx, window.innerWidth-kutu.width-8);
+    var ay=Math.min(cy, window.innerHeight-kutu.height-8);
+    ctxMenu.style.left=Math.max(6,ax)+"px";
+    ctxMenu.style.top=Math.max(6,ay)+"px";
+
+    ctxMenu.querySelectorAll("[data-cx]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var k=b.dataset.cx;
+        ctxKapat();
+        if(k==="bilgi" || k==="takviye" || k==="saldir") onRegionTap(region.id);
+        else if(k==="bina"){
+          menuSheet.classList.add("open"); setActiveTab("menu");
+          showToast("🏗️ Kartı bu bölgeye sürükle.");
+        }
+        else if(k==="kesif"){
+          if(state.gold<KESIF_BEDEL){ showToast("🪙 Yeterli altının yok."); return; }
+          state.gold-=KESIF_BEDEL;
+          region.kesif=state.turn+KESIF_SURE;
+          showToast("🔭 "+region.name+" keşfedildi — tahkimatı "+KESIF_SURE+" tur açık.");
+          drawMap();
+        }
+        else if(k==="ateskes" && bot){
+          var bedel=ateskesBedeli(bot);
+          if(state.gold<bedel){ showToast("🪙 Yeterli altının yok."); return; }
+          state.gold-=bedel;
+          bot.ateskes=state.turn+10;
+          showToast("🤝 Ateşkes kuruldu — bu cephe 10 tur baskın yapmayacak.");
+          drawMap();
+        }
+      });
+    });
+  }
+
+  mapWrap.addEventListener("contextmenu", function(e){
+    var region=regionAtPoint(e.clientX, e.clientY);
+    if(!region) return;
+    e.preventDefault();
+    ctxAc(region, e.clientX, e.clientY);
+  });
+  // Dokunmatik: basılı tutunca aynı menü.
+  mapWrap.addEventListener("pointerdown", function(e){
+    if(e.pointerType==="mouse") return;
+    clearTimeout(ctxBasili);
+    var x=e.clientX, y=e.clientY;
+    ctxBasili=setTimeout(function(){
+      if(hareket<9){
+        var region=regionAtPoint(x,y);
+        if(region) ctxAc(region,x,y);
+      }
+    }, 480);
+  });
+  ["pointerup","pointercancel","pointermove"].forEach(function(t){
+    mapWrap.addEventListener(t, function(){ if(hareket>9) clearTimeout(ctxBasili); });
+  });
+  mapWrap.addEventListener("pointerup", function(){ clearTimeout(ctxBasili); });
+  document.addEventListener("pointerdown", function(e){
+    if(ctxMenu && !ctxMenu.hidden && !ctxMenu.contains(e.target)) ctxKapat();
+  }, true);
+  document.addEventListener("keydown", function(e){ if(e.key==="Escape") ctxKapat(); });
 
   mapWrap.addEventListener("wheel", function(e){
     e.preventDefault();
@@ -2164,23 +2582,39 @@
   function tick(){
     if(state.gameOver) return;
     var goldGain=0, armyGain=0, ownedCount=0;
+    if(routesDirty) rebuildRoutes();      // ikmal de burada tazeleniyor
     regions.forEach(function(t){
       if(t.type==="capital"){ goldGain+=5; armyGain+=2; }
       if(t.owner==="player"){
         ownedCount++;
         if(isScorched(t)) return;          // kavrulmuş toprak üretim yapmaz
-        if(t.type==="resource") goldGain+=t.goldBonus;
+        // Beslenmeyen bölge tam üretmez; kesik bölge hiç üretmez.
+        var ik=(t.ikmal==null?100:t.ikmal)/100;
+        if(t.type==="resource") goldGain+=t.goldBonus*ik;
         if(t.building){
           var b=BUILDINGS[t.building];
-          if(b.gold) goldGain+=b.gold;
-          if(b.army) armyGain+=b.army;
+          if(b.gold) goldGain+=b.gold*ik;
+          if(b.army) armyGain+=b.army*ik;
         }
       }
     });
-    // Fabrika–Kent arası işleyen her konvoy hattı ticaret geliri üretir.
-    if(routesDirty) rebuildRoutes();
-    var ticaret=workerRoutes.length*4;
-    goldGain+=ticaret;
+    // Ticaret geliri artık hat SAYISINDAN değil, hatların durumundan geliyor:
+    // güvenli yol tam, riskli yol az, kesik yol hiç kazandırmıyor — ve yolun
+    // üstündeki her geçit geliri artırıyor.
+    var rd=rotaDurumu();
+    goldGain+=rd.gelir;
+    state.ticaret+=rd.gelir;
+
+    /* Phase 4: riskli hat bir tehdittir, sadece az kazandırmaz. Her riskli
+       konvoy turda küçük bir ihtimalle vurulur ve yükünü kaybeder. Oyuncunun
+       kararı: hattı koru mu, riski göze al mı? */
+    if(rd.riskli>0 && Math.random() < Math.min(0.35, 0.10*rd.riskli)){
+      var kayip=Math.min(state.gold, 6+randInt(0,8));
+      if(kayip>0){
+        state.gold-=kayip; state.konvoyKaybi+=kayip;
+        showToast("🚚 Konvoy baskına uğradı — "+kayip+" altın kaybettin. Riskli hattı koru.");
+      }
+    }
 
     var expansionBonus=Math.floor(ownedCount/3);
     armyGain += expansionBonus;
@@ -2202,6 +2636,7 @@
       state.lastExpansionBonus=expansionBonus;
       showToast("🎖️ Fethedilen topraklar büyüdükçe asker üretimin hızlandı! (+"+expansionBonus+"/tur)");
     }
+    goldGain=Math.round(goldGain);          // ikmal çarpanı kesirli üretebilir
     state.gold+=goldGain;
     state.army=Math.min(state.maxArmy, state.army+armyGain);
     state.turn+=1;
@@ -2238,6 +2673,15 @@
       if(cap.owner!=="player" || !isAdjacentToEnemy(cap)) return;
       target=cap; lastStand=true;
     }
+
+    /* Baskını yapan botu belirle: hedefe komşu düşman bölgelerinin sahibi.
+       O botla ateşkes varsa bu tur baskın olmaz — ateşkes gerçek bir etki. */
+    var saldiranBot=null;
+    target.neighbors.forEach(function(nid){
+      var n=regions[nid];
+      if(n.owner==="enemy" && n.botId!=null && saldiranBot===null) saldiranBot=bots[n.botId]||null;
+    });
+    if(saldiranBot && saldiranBot.ateskes>state.turn) return;
 
     state.raidCount+=1;
     var power=6+state.raidCount;
@@ -2373,12 +2817,37 @@
           });
         });
         if(candidates.length){
-          var target=candidates[randInt(0,candidates.length-1)];
+          /* Phase 5: yayılma artık rastgele değil. Bot da oyunun kimliğine
+             göre oynuyor — önce geçitler, sonra oyuncunun rotasını kesecek
+             bölgeler, sonra sıradan toprak. Ağırlıklı seçim, sert kural değil:
+             rakip okunabilir kalsın, hile yapmasın. */
+          var rotaUstu={};
+          workerRoutes.forEach(function(rt){
+            if(rt.durum==="kesildi") return;
+            rt.nodes.forEach(function(id){
+              regions[id].neighbors.forEach(function(nid){ rotaUstu[nid]=true; });
+            });
+          });
+          var puanli=candidates.map(function(c){
+            var p=1;
+            if(c.gecit) p+=6;              // geçit: en değerli hedef
+            if(rotaUstu[c.id]) p+=3;       // oyuncunun hattını tehdit eder
+            return {r:c, p:p};
+          });
+          var toplamP=0; puanli.forEach(function(x){ toplamP+=x.p; });
+          var sec=Math.random()*toplamP, target=puanli[0].r;
+          for(var pi=0; pi<puanli.length; pi++){
+            sec-=puanli[pi].p;
+            if(sec<=0){ target=puanli[pi].r; break; }
+          }
           target.type="enemy";
           target.owner="enemy";
           target.botId=bot.id;
-          target.defense=clamp(bot.power + randInt(-2,2), 3, 46);
+          // Geçit aldıysa daha sıkı tutuyor — oyuncu geri almak için bedel ödesin.
+          target.defense=clamp(bot.power + randInt(-2,2) + (target.gecit?6:0), 3, 52);
+          if(target.gecit) showToast("⛰ "+target.gecit.ad+" düşman eline geçti.");
           changed=true;
+          invalidateRoutes();
         }
       }
     });
@@ -2388,9 +2857,9 @@
   function startLoops(){
     state.started=true;
     bfStatBump("seferSayisi");
-    tickTimer=setInterval(tick, 2000);
-    raidTimer=setInterval(tryRaid, 28000);
-    botTimer=setInterval(botTickAll, 7000);
+    tickTimer=setInterval(tick, LOOP.tick);
+    raidTimer=setInterval(tryRaid, LOOP.raid);
+    botTimer=setInterval(botTickAll, LOOP.bot);
     // Önce ekranı doldurmak için gereken asgari yakınlaşmayı kur, sonra
     // oyuncu ilk açılışta kendi başkentini aramasın diye kamerayı oraya kaydır.
     fitMapToScreen();
@@ -2402,25 +2871,35 @@
   // erken çalışması bir işe yaramaz.
   window.__bfOnShow=function(){ fitMapToScreen(); };
 
-  // Lobideki "harita özeti" küçük resmi: uydurma bir SVG değil, oyunun
-  // gerçekten ürettiği kara siluetinin küçültülmüş hâli (generateWorld()
-  // sayfa yüklenirken zaten çalıştığı için landPixelsList hazırdır).
-  window.__bfPaintMiniMap=function(cv){
-    if(!cv || !landPixelsList.length) return;
-    var g=cv.getContext("2d");
-    var sx=cv.width/GRID_W, sy=cv.height/GRID_H;
-    g.clearRect(0,0,cv.width,cv.height);
-    g.fillStyle="rgba(139,147,162,0.5)";
-    for(var i=0;i<landPixelsList.length;i++){
-      var p=landPixelsList[i];
-      g.fillRect(p.x*sx, p.y*sy, Math.ceil(sx), Math.ceil(sy));
+  /* Lobinin harekât haritası için salt-okunur veri. Boyama işini lobby.js
+     yapıyor — motor yalnızca ham gerçeği veriyor (ızgara ölçüsü, kara
+     pikselleri, iki başkentin adı ve yeri). Böylece lobinin görsel dili
+     değiştiğinde game.js'e hiç dokunmak gerekmiyor; bu, çizimin burada
+     durduğu eski __bfPaintMiniMap'in yerini alıyor.
+     landPixelsList ve anchor'lar generateWorld() ile sayfa yüklenirken
+     hazırlandığından lobi ilk karesinde bile doğru haritayı çizebilir. */
+  window.__bfLobbyData=function(){
+    if(!landPixelsList.length) return null;
+    function ozet(r){
+      return r ? {id:r.id, name:r.name, x:r.anchor.x, y:r.anchor.y} : null;
     }
-    if(regions[0]){
-      g.fillStyle="#0ea5e9";
-      g.beginPath();
-      g.arc(regions[0].anchor.x*sx, regions[0].anchor.y*sy, 2.4, 0, Math.PI*2);
-      g.fill();
-    }
+    return {
+      gridW:GRID_W, gridH:GRID_H,
+      geo:{lon0:GEO.lon0, lon1:GEO.lon1, lat0:GEO.lat0, lat1:GEO.lat1},  // gerçek enlem/boylam çerçevesi
+      /* Kıyı çizgisi ham poligon olarak: lobi haritayı piksel ızgarasından
+         değil bu vektörden çiziyor, böylece köşeli değil temiz çıkıyor.
+         Oyun ekranı piksel görünümünü kasten koruyor — bu yalnızca lobi için. */
+      sinirlar:{anadolu:ANATOLIA, trakya:THRACE, goller:LAKES},
+      land:landPixelsList,                 // {x,y,isBorder,...} — okumak için
+      ilSayisi:REGION_COUNT,
+      botSayisi:bots.length,
+      baskent:ozet(regions[0]),            // oyuncunun karargâhı
+      hedef:ozet(regions[1]),              // düşman başkenti (klasik mod hedefi)
+      gecitler:GECITLER.map(function(g){
+        var r = g.regionId>=0 ? regions[g.regionId] : null;
+        return {ad:g.ad, kisa:g.kisa, x:g.gx, y:g.gy, lat:g.lat, lon:g.lon, il:r?r.name:null};
+      })
+    };
   };
 
   /* ================= Modals ================= */
@@ -2470,6 +2949,26 @@
     });
   }
 
+  /* Madde 28: sadece "KAZANDIN" değil, kısa bir sefer raporu. Oyuncu
+     "nasıl oynadım?" sorusunun cevabını görsün — ama istatistik tablosu değil,
+     beş satır. */
+  function seferRaporu(){
+    var gd=gecitDurumu(), rd=rotaDurumu(), ik=genelIkmal();
+    var bolge=regions.filter(function(r){ return r.owner==="player"; }).length;
+    var askeri = state.fetih>=25 ? "Yüksek" : (state.fetih>=10 ? "Orta" : "Düşük");
+    var sat=function(k,v){
+      return "<div class='stat-row'><span>"+k+"</span><b>"+v+"</b></div>";
+    };
+    return "<div style='margin:14px 0 4px;text-align:left'>"+
+      sat("Geçitler", gd.tut+" / "+gd.toplam)+
+      sat("Kontrol edilen bölge", bolge+" il")+
+      sat("Ticaret geliri", "+"+state.ticaret+(state.konvoyKaybi?" (−"+state.konvoyKaybi+" baskın)":""))+
+      sat("Askerî başarı", askeri+" · "+state.fetih+" fetih")+
+      sat("İkmal", "%"+ik)+
+      sat("Süre", state.turn+" tur")+
+    "</div>";
+  }
+
   function showDefeat(){
     state.gameOver=true;
     clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
@@ -2480,6 +2979,7 @@
       "<div class='sheet-sub' style='margin-bottom:0;color:var(--text-dim)'>"+
         state.turn+" tur dayandın. Sınır bölgelerini savunmasız bırakmak pahalıya patladı — "+
         "tahkimat kurmadığın her cephe düşmanın giriş kapısıydı.</div>"+
+      seferRaporu()+
       "<button id='restart-btn'>Tekrar Dene</button>";
     modalOverlay.classList.add("show");
     document.getElementById("restart-btn").addEventListener("click", function(){
@@ -2495,7 +2995,11 @@
     modalBox.innerHTML =
       "<div class='big'>🎉👑</div>"+
       "<h2>Zaferi Kazandın!</h2>"+
-      "<div class='sheet-sub' style='margin-bottom:0;color:var(--text-dim)'>Düşman başkentini "+state.turn+" turda fethettin.</div>"+
+      "<div class='sheet-sub' style='margin-bottom:0;color:var(--text-dim)'>"+
+        ((MODES[activeMode]||{}).hedef||{}).tip==="gecit"
+          ? "Anadolu geçiş ağının çoğunluğu kontrol altında."
+          : ("Düşman başkentini "+state.turn+" turda fethettin.")+"</div>"+
+      seferRaporu()+
       "<button id='restart-btn'>Tekrar Oyna</button>";
     modalOverlay.classList.add("show");
     document.getElementById("restart-btn").addEventListener("click", function(){
@@ -2579,6 +3083,36 @@
     else if(key==="diplomacy") showToast("🤝 Diplomasi sistemi henüz yok — yakında.");
   });
 
+  /* Sefer sırasında lobiye dönüş. Yeniden başlatma zaten location.reload()
+     ile çalışıyor (bkz. yenilgi/zafer modalları) ve lobi sayfanın açılış
+     ekranı olduğu için çıkış da aynı yolu kullanıyor: yarım sıfırlanmış bir
+     dünya bırakmaktansa temiz bir harita üretmek daha güvenli. Fetih
+     sayaçları localStorage'da olduğu için günlük kaybolmuyor. */
+  function confirmQuit(){
+    closeMenuSheet();
+    modalBox.className="modal-box";
+    modalBox.innerHTML =
+      "<h2>Seferden çık</h2>"+
+      "<p class='quit-note'>Lobiye döneceksin. Bu seferin ilerlemesi kaydedilmez — "+
+      "yeni sefer sıfırdan üretilen bir haritada başlar. Sefer günlüğündeki "+
+      "toplamların yerinde kalır.</p>"+
+      "<button id='quit-yes'>Evet, seferden çık</button>"+
+      "<button id='quit-no'>Vazgeç</button>";
+    modalOverlay.classList.add("show");
+    document.getElementById("quit-yes").addEventListener("click", function(){
+      clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
+      location.reload();
+    });
+    document.getElementById("quit-no").addEventListener("click", function(){
+      modalOverlay.classList.remove("show");
+    });
+  }
+  document.getElementById("menu-quit").addEventListener("click", confirmQuit);
+  document.getElementById("menu-help").addEventListener("click", function(){
+    closeMenuSheet();
+    showInstructions(false);
+  });
+
   /* ================= Init ================= */
   generateWorld();
   drawMap();
@@ -2587,6 +3121,52 @@
   // ekranından "Seferi Başlat"a bastığında açılıyor (bkz. lobby.js) —
   // #modal-overlay artık #app'in dışında (mağaza da kullanıyor), o yüzden
   // #app gizliyken otomatik gösterilirse açılış ekranının üstüne biner.
+  /* Lobi mod kartlarını buradan doldurur; "3 ORDU · ZOR" gibi satırlar
+     uydurma değil, aşağıdaki gerçek ayarların özeti. */
+  window.__bfModes=function(){
+    return Object.keys(MODES).map(function(k){
+      var m=MODES[k];
+      // Mod sabit dağılım dayatmıyorsa (bots:null) haritada gerçekten atanmış
+      // olan bot zorlukları okunuyor — uydurma bir liste değil.
+      var keys = m.bots ? m.bots.slice() : bots.map(function(b){ return b.difficulty; });
+      var zorluk = m.bots ? m.bots.map(function(d){ return BOT_DIFF[d].label; }).join(" · ") : "Karışık";
+      var foes = keys.map(function(d, i){
+        return {ad:"CEPHE "+String.fromCharCode(65+i), zorluk:BOT_DIFF[d].label, renk:BOT_COLORS[d], guc:BOT_DIFF[d].basePower};
+      });
+      return {
+        foes:foes,
+        key:k, name:m.name, tag:m.tag, desc:m.desc, active:(k===activeMode),
+        hedef:m.hedef||{tip:"baskent"},
+        stats:[
+          {k:"Cephe",  v:REGION_COUNT+" il"},
+          {k:"Rakip",  v:(m.bots?m.bots.length:3)+" ordu · "+zorluk},
+          {k:"Tempo",  v:(2000/m.tick).toFixed(m.tick===2000?0:1).replace(".",",")+"× hız"},
+          {k:"Açılış", v:m.gold+" altın"}
+        ]
+      };
+    });
+  };
+  window.__bfSetMode=function(key){
+    var m=MODES[key];
+    if(!m || state.started) return false;
+    activeMode=key;
+    LOOP.tick=m.tick; LOOP.raid=m.raid; LOOP.bot=m.bot;
+    state.gold=m.gold;
+    // Botların zorluğu generateWorld() sırasında rastgele atanmıştı; mod
+    // sabit bir dağılım istiyorsa burada üzerine yazılıyor.
+    if(m.bots){
+      bots.forEach(function(b,i){
+        var d=m.bots[i % m.bots.length];
+        b.difficulty=d; b.power=BOT_DIFF[d].basePower;
+      });
+    }
+    drawMap();                        // HUD'daki altın ve skorbord tazelensin
+    return true;
+  };
+
   window.__bfShowInstructions=function(){ showInstructions(true); };
+  // Lobiden okunan brifing: isFirstTime=false olduğu için kapatınca oyun
+  // döngülerini BAŞLATMAZ — oyuncu sefere girmeden kuralları okuyabilsin diye.
+  window.__bfShowBriefing=function(){ showInstructions(false); };
 
 })();

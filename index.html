@@ -100,16 +100,31 @@
 <div id="app" hidden>
 
   <div id="hud">
+    <!-- Her gösterge artık bir düğme: dokununca ilgili paneli açar.
+         Bilgi göstermekle kalmıyor, o bilginin detayına giden kapı oluyor. -->
     <div class="hud-pill">
-      <div class="hud-stat gold"><span class="hud-ico">🪙</span><span class="hud-val-row"><span class="hud-val" id="gold-val">0</span><span id="gold-popup-zone"></span></span></div>
+      <button class="hud-stat gold" id="hud-gold" title="Ekonomi dökümü">
+        <span class="hud-ico" aria-hidden="true">🪙</span>
+        <span class="hud-val-row"><span class="hud-val" id="gold-val">0</span><span id="gold-popup-zone"></span></span>
+      </button>
       <div class="hud-sep"></div>
-      <div class="hud-stat army"><span class="hud-ico">⚔</span><span class="hud-val" id="army-val">0/0</span></div>
+      <button class="hud-stat army" id="hud-army" title="Ordu ve tavan">
+        <span class="hud-ico" aria-hidden="true">⚔</span><span class="hud-val" id="army-val">0/0</span>
+      </button>
       <div class="hud-sep"></div>
-      <div class="hud-stat supply"><span class="hud-ico">⛽</span><span class="hud-val" id="supply-val">100%</span></div>
+      <button class="hud-stat supply" id="hud-supply" title="İkmal durumu">
+        <span class="hud-ico" aria-hidden="true">⛽</span><span class="hud-val" id="supply-val">100%</span>
+      </button>
       <div class="hud-sep"></div>
-      <div class="hud-stat gate"><span class="hud-ico">⛰</span><span class="hud-val" id="gate-val">0/6</span></div>
+      <button class="hud-stat gate" id="hud-gate" title="Geçitler">
+        <span class="hud-ico" aria-hidden="true">⛰</span><span class="hud-val" id="gate-val">0/6</span>
+      </button>
       <div class="hud-sep"></div>
-      <div class="hud-stat turn"><span class="hud-ico">◉</span><span class="hud-val" id="turn-val">YIL 2026 · Ç1</span></div>
+      <button class="hud-stat turn" id="hud-turn" title="Sefer kroniği">
+        <span class="hud-ico" aria-hidden="true">◉</span><span class="hud-val" id="turn-val">YIL 2026 · Ç1</span>
+      </button>
+      <!-- Bir sonraki baskına kalan süre: bekleme, geri sayımlı hazırlığa döner. -->
+      <div class="raid-track" title="Bir sonraki baskına kalan süre"><div class="raid-fill" id="raid-fill"></div></div>
     </div>
     <div class="hud-sag">
       <button id="pause-btn" aria-label="Duraklat" aria-pressed="false" title="Duraklat (P)">❚❚</button>
@@ -133,10 +148,28 @@
   </div>
 
   <div id="hud-bottom">
-    <span class="hud-ico">🗺</span>
+    <span class="hud-ico" aria-hidden="true">🗺</span>
     <span>Bölge Kontrolü</span>
     <div class="hud-bottom-track"><div class="hud-bottom-fill" id="control-fill"></div></div>
     <span class="hud-val" id="control-val">0%</span>
+  </div>
+
+  <!-- Seçim şeridi: panel kapansa da son incelenen bölgenin künyesi burada
+       kalır. Oyuncu iki hedefi karşılaştırırken paneli açıp kapatmak zorunda
+       kalmasın diye. -->
+  <div id="secim-serit" hidden>
+    <span class="ss-ad" id="ss-ad">—</span>
+    <span class="ss-veri" id="ss-veri"></span>
+    <button class="ss-kapat" id="ss-kapat" aria-label="Seçimi bırak">✕</button>
+  </div>
+
+  <!-- Harita katmanı seçici: aynı anda tek katman (şartname §10). -->
+  <div id="katman-secici" role="group" aria-label="Harita katmanı">
+    <button class="kt" data-kt="sahiplik" aria-pressed="true"><span>Sahiplik</span><em>1</em></button>
+    <button class="kt" data-kt="ikmal" aria-pressed="false"><span>İkmal</span><em>2</em></button>
+    <button class="kt" data-kt="rota" aria-pressed="false"><span>Rota</span><em>3</em></button>
+    <button class="kt" data-kt="gecit" aria-pressed="false"><span>Geçit</span><em>4</em></button>
+    <button class="kt" data-kt="tehdit" aria-pressed="false"><span>Tehdit</span><em>5</em></button>
   </div>
 
   <!-- Menü sekmesinin açtığı yüzen panel: bina/füze kartları + ipucu -->
@@ -145,6 +178,7 @@
     <p id="footnote">Bina kartını kendi bölgene sürükle · ☢ füzeyi istediğin yere · ya da bölgeye dokun</p>
     <!-- Sefer sırasında çıkış yolu: oyuncu oyuna kilitlenmiş hissetmesin. -->
     <div id="menu-actions">
+      <button class="menu-act" id="menu-ses">Ses: Açık</button>
       <button class="menu-act" id="menu-help">Nasıl Oynanır</button>
       <button class="menu-act menu-act--quit" id="menu-quit">Seferden Çık</button>
     </div>
@@ -212,6 +246,7 @@
   <div class="modal-box" id="modal-box"></div>
 </div>
 
+<script src="ses.js"></script>
 <script src="game.js"></script>
 <script src="harita-tr.js"></script>
 <script src="lobby.js"></script>

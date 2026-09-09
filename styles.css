@@ -902,3 +902,209 @@
   .modal-box.victory{text-align:center;}
   .modal-box.defeat{text-align:center; border-color:var(--danger); box-shadow:0 0 0 1px var(--danger) inset;}
   .modal-box.victory .big{font-size:38px; margin-bottom:6px;}
+
+/* ==========================================================================
+   v0.2 — OYNANIŞ KATMANI
+   Yeni bileşenler: tıklanabilir HUD, baskın geri sayımı, katman seçici,
+   seçim şeridi, bilgi panelleri, türetilmiş yardım ekranı, onay diyaloğu.
+   Palet ve ölçek mevcut jetonlardan gelir; yeni renk icat edilmemiştir.
+   ========================================================================== */
+
+/* ---------- HUD göstergeleri artık düğme ---------- */
+button.hud-stat{
+  background:none; border:none; margin:0; font:inherit; color:inherit;
+  cursor:pointer; position:relative;
+  transition:background var(--transition-fast);
+}
+button.hud-stat:hover{background:rgba(255,255,255,0.06);}
+button.hud-stat:active{background:rgba(255,255,255,0.10);}
+button.hud-stat:focus-visible{outline:2px solid var(--gold); outline-offset:-2px;}
+
+/* Bir sonraki baskına kalan süre — HUD kapsülünün alt kenarında ince şerit */
+.raid-track{
+  position:absolute; left:0; right:0; bottom:0; height:2px;
+  background:rgba(255,255,255,0.07);
+}
+.raid-fill{
+  height:100%; width:0%;
+  background:var(--text-dim);
+  transition:width 0.25s linear, background 0.25s linear;
+}
+.raid-fill.yakin{background:var(--danger);}
+
+/* ---------- Katman seçici ---------- */
+#katman-secici{
+  position:absolute; left:10px; bottom:104px; z-index:24;
+  display:flex; flex-direction:column; gap:4px;
+}
+#katman-secici .kt{
+  display:flex; align-items:center; gap:7px;
+  padding:5px 9px 5px 8px;
+  background:var(--panel-bg);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--line); border-radius:7px;
+  color:var(--text-dim); cursor:pointer;
+  font-family:var(--sans); font-size:10.5px; font-weight:600; letter-spacing:0.02em;
+  transition:color var(--transition-fast), border-color var(--transition-fast);
+}
+#katman-secici .kt em{
+  font-style:normal; font-family:var(--mono); font-size:9px;
+  padding:1px 4px; border:1px solid var(--line); border-radius:3px; color:var(--text-dim);
+}
+#katman-secici .kt:hover{color:var(--text);}
+#katman-secici .kt.acik{color:var(--accent-color); border-color:var(--accent-color);}
+#katman-secici .kt:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
+@media (max-width:520px){
+  #katman-secici{flex-direction:row; left:8px; right:8px; bottom:100px; overflow-x:auto;}
+  #katman-secici .kt em{display:none;}
+}
+
+/* ---------- Seçim şeridi ---------- */
+#secim-serit{
+  position:absolute; left:10px; right:10px; bottom:58px; z-index:25;
+  display:flex; align-items:center; gap:9px;
+  padding:7px 10px;
+  background:var(--panel-bg);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--line); border-radius:9px;
+  box-shadow:0 8px 20px rgba(0,0,0,0.35);
+  font-size:11.5px;
+}
+#secim-serit .ss-ad{font-weight:700; color:var(--text); white-space:nowrap;}
+#secim-serit .ss-veri{
+  color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;
+}
+#secim-serit .ss-kapat{
+  background:none; border:none; color:var(--text-dim); cursor:pointer;
+  font-size:12px; padding:2px 4px; flex-shrink:0;
+}
+#secim-serit .ss-kapat:hover{color:var(--text);}
+
+/* ---------- Panel bileşenleri ---------- */
+.stat-row.vurgu b{color:var(--gold);}
+.stat-row.kotu b{color:var(--danger);}
+.stat-row b small{font-family:var(--sans); font-weight:400; font-size:11px; color:var(--text-dim);}
+
+.panel-uyari, .panel-olumlu, .panel-ipucu{
+  font-size:11.5px; line-height:1.45; padding:9px 11px; border-radius:7px; margin-top:10px;
+}
+.panel-uyari{background:var(--danger-dim); border:1px solid var(--danger); color:var(--text);}
+.panel-olumlu{background:rgba(95,168,127,0.12); border:1px solid #4d8a68; color:var(--text);}
+.panel-ipucu{background:var(--panel-2); border:1px solid var(--line); color:var(--text-dim);}
+
+/* Bu bölge baskına dayanır mı — panelin en üstündeki tek satırlık hüküm */
+.dayanim{
+  font-size:12px; font-weight:600; padding:9px 11px; border-radius:7px; margin-bottom:12px;
+}
+.dayanim small{font-weight:400; color:var(--text-dim); font-family:var(--mono); font-size:10.5px;}
+.dayanim.iyi{background:rgba(95,168,127,0.12); border:1px solid #4d8a68; color:var(--text);}
+.dayanim.kotu{background:var(--danger-dim); border:1px solid var(--danger); color:var(--text);}
+
+.a-desc.a-ince{color:var(--text-dim); opacity:0.75; font-size:10.5px;}
+.atk-desc .notr-line{color:var(--text-dim); font-size:10.5px; font-family:var(--mono);}
+
+/* Kuşatma önerisi */
+.oneri-bas{font-size:11px; color:var(--gold); margin:2px 0 6px;}
+.oneri-liste{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;}
+.oneri-cip{
+  background:var(--panel-2); border:1px solid var(--gold); color:var(--text);
+  border-radius:6px; padding:5px 9px; font-size:11px; cursor:pointer; font-family:inherit;
+}
+.oneri-cip:active{transform:scale(0.96);}
+
+/* Kronik */
+.kronik-satir{
+  display:flex; gap:9px; padding:7px 0; border-bottom:1px solid var(--line);
+  font-size:11.5px; line-height:1.4; color:var(--text-dim);
+}
+.kronik-satir:last-child{border-bottom:none;}
+.kronik-satir .kr-tur{
+  font-family:var(--mono); font-size:10px; color:var(--text-dim);
+  flex-shrink:0; padding-top:1px; min-width:30px;
+}
+.kronik-satir.sv3{color:var(--text); border-left:2px solid var(--danger); padding-left:8px;}
+.kronik-satir.sv4{color:var(--text); border-left:2px solid var(--gold); padding-left:8px;}
+
+/* Diplomasi kartları */
+.cephe-kart{
+  background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
+  padding:11px 12px; margin-bottom:9px;
+}
+.cephe-kart.ateskesli{border-color:#4d8a68;}
+.cephe-bas{display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:3px;}
+.cephe-nokta{width:9px; height:9px; border-radius:50%; flex-shrink:0;}
+.cephe-rozet{
+  margin-left:auto; font-style:normal; font-family:var(--mono); font-size:9.5px;
+  color:#6fbf8f; border:1px solid #4d8a68; border-radius:4px; padding:1px 6px;
+}
+.cephe-veri{font-size:11px; color:var(--text-dim); margin-bottom:9px;}
+.cephe-kart .action-btn{margin-bottom:0;}
+
+/* Şehir listesi durum renkleri */
+.sehir-satir.d0{border-left:3px solid var(--danger);}
+.sehir-satir.d1{border-left:3px solid var(--gold);}
+.sehir-satir.d2{border-left:3px solid var(--accent-color-2);}
+.sehir-satir.d3{border-left:3px solid rgba(95,168,127,0.6);}
+
+/* Tepsi kilitleri */
+.build-card.kilitli{opacity:0.45;}
+.build-card .bc-kilit{
+  font-size:8px; color:var(--danger); text-align:center; line-height:1.15; margin-top:2px;
+}
+
+/* ---------- Onay diyaloğu ---------- */
+.modal-box.onay{max-width:340px;}
+.modal-box.onay .onay-metin{font-size:13px; line-height:1.5; color:var(--text-dim); margin:0 0 4px;}
+.modal-box.onay .onay-metin b{color:var(--text);}
+.modal-box.onay .tehlike-metin{color:var(--danger);}
+.modal-box.onay button{
+  width:100%; margin-top:10px; padding:11px; border-radius:8px; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--text); font-size:13.5px; font-weight:600;
+  cursor:pointer; font-family:inherit;
+}
+.modal-box.onay button#onay-evet{background:var(--player); border-color:var(--player); color:#08130e;}
+.modal-box.onay button#onay-evet.tehlike{background:var(--danger); border-color:var(--danger); color:#fff;}
+.modal-box.onay button:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
+
+/* ---------- Yardım ekranı (türetilmiş) ---------- */
+.modal-box.yardim{max-width:420px;}
+.modal-box.yardim h2{margin-bottom:10px;}
+.yd-hedef{
+  background:rgba(211,168,76,0.10); border:1px solid var(--gold); border-radius:8px;
+  padding:11px 12px; margin-bottom:14px; display:flex; flex-direction:column; gap:3px;
+}
+.yd-hedef-et{
+  font-family:var(--mono); font-size:9px; letter-spacing:0.16em; text-transform:uppercase;
+  color:var(--gold);
+}
+.yd-hedef b{font-size:14px; color:var(--text); line-height:1.35;}
+.yd-hedef-alt{font-size:11px; color:var(--text-dim);}
+
+.yd-bolum{margin-bottom:16px;}
+.yd-bolum h3{
+  font-family:var(--font-display); font-size:11px; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--text-dim); font-weight:600;
+  margin:0 0 8px; padding-bottom:5px; border-bottom:1px solid var(--line);
+}
+.yd-satir{display:flex; gap:10px; margin-bottom:9px; align-items:flex-start;}
+.yd-ikon{
+  flex:0 0 22px; text-align:center; font-size:15px; line-height:1.3; padding-top:1px;
+}
+.yd-ikon .yd-sym{width:20px; height:20px;}
+.yd-govde{display:flex; flex-direction:column; gap:2px; min-width:0;}
+.yd-govde b{font-size:12.5px; color:var(--text); font-weight:600;}
+.yd-kunye{
+  font-family:var(--mono); font-size:10.5px; color:var(--gold); line-height:1.4;
+}
+.yd-ac{font-size:11.5px; color:var(--text-dim); line-height:1.45;}
+
+/* ---------- Erişilebilirlik: görünür odak ---------- */
+.action-btn:focus-visible, .bb-tab:focus-visible, .qty-preset:focus-visible,
+.atk-type:focus-visible, .lb-row:focus-visible, .oneri-cip:focus-visible,
+#sheet-close:focus-visible, .menu-act:focus-visible{
+  outline:2px solid var(--gold); outline-offset:2px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  button.hud-stat, .raid-fill, #katman-secici .kt{transition:none;}
+}

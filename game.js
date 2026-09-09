@@ -250,6 +250,17 @@
   var BOT_COLORS={kolay:"#a8863f", orta:"#7a5a94", zor:"#b5432f"};
   var BOSS_COLOR="#82283a";
 
+  /* ================= Denge sabitleri (v0.2) =================
+     Üçü de tek bir sorunu çözüyor: eski sürümde oyun ne sömürüye kapalıydı
+     ne de kaybedilebilirdi.
+       MIN_TAARRUZ  — 1 askerle sonsuz aşındırma sömürüsünü kapatır.
+       BAKIM_BOLEN  — altın biriktirmenin bedeli olur; "bekle ve büyü" biter.
+       GECIT_TUTMA  — geçit zaferi anlık değil, tutmaya dayalı hale gelir. */
+  var MIN_TAARRUZ=0.20;          // hedefin etkin savunmasının en az %20'si
+  var BAKIM_BOLEN=8;             // ordu bakımı = ceil(ordu / 8) altın/tur
+  var GECIT_TUTMA=8;             // geçit hedefini kaç tur tutmak gerekir
+  var BASKENT_KAYIP=0.6;         // başkent kuşatmasında eriyen garnizon oranı
+
   /* ================= Sefer modları =================
      Lobideki kartlar süs değil: her biri gerçekten motoru değiştiriyor —
      botların zorluğu, tur/baskın/bot saatlerinin hızı ve açılış altını.
@@ -258,7 +269,7 @@
     gecit:{
       name:"Geçit", tag:"YENİ",
       desc:"4/6 geçidi kontrol et. Rotanı koru, rakibin ikmalini kes.",
-      hedef:{tip:"gecit", gerek:4},
+      hedef:{tip:"gecit", gerek:4, tut:GECIT_TUTMA},
       bots:null,
       gold:70, tick:2000, raid:24000, bot:6000
     },
@@ -288,7 +299,10 @@
   var LOOP={tick:2000, raid:28000, bot:7000};
 
   var state={gold:60, army:10, maxArmy:60, turn:0, gameOver:false, started:false, raidCount:0, lastExpansionBonus:0,
-             ticaret:0, konvoyKaybi:0, fetih:0};
+             ticaret:0, konvoyKaybi:0, fetih:0,
+             /* v0.2: ekonomi dökümü, zafer sayacı, olay günlüğü, duraklatma */
+             sonUretim:0, sonBakim:0, sonGelir:0, bakimToplam:0,
+             gecitSayaci:null, baskentUyari:-99, olaylar:[], durakladi:false};
 
   var pixelRegionId=[];      // [y][x] -> region id or -1
   var landPixelsList=[];     // flat {x,y,regionId,noise,isBorder}
@@ -324,6 +338,21 @@
   window.__bfStats=function(){
     return { sefer:bfStatGet("seferSayisi"), fetih:bfStatGet("toplamFetih"), kazanildi:bfStatGet("kazanildi") };
   };
+
+  /* ================= Olay günlüğü ve seviyeli bildirim =================
+     Eski sürümde "bina kuruldu" ile "BÖLGE DÜŞTÜ" aynı kutuda, aynı renkte,
+     aynı süreyle çıkıyordu. Artık dört seviye var ve her seviyenin kendi
+     görsel ağırlığı, kendi sesi ve kendi kalıcılığı var:
+       1 mikro     — sessiz, kısa toast
+       2 normal    — toast
+       3 kritik    — kırmızı bant, uzun, sarsıntı + alarm sesi
+       4 stratejik — pirinç bant + günlüğe yazılır (sefer kroniği)
+     Günlük yalnızca 3 ve 4. seviyeyi saklar; sonuç ekranı bunları gösterir. */
+  var OLAY_TAVAN=40;
+  function olayEkle(seviye, metin){
+    state.olaylar.push({tur:state.turn, seviye:seviye, metin:metin});
+    if(state.olaylar.length>OLAY_TAVAN) state.olaylar.shift();
+  }
 
   function randInt(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
   function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
@@ -902,6 +931,12 @@
       value:Math.max(1, Math.round(base*toplam))
     };
   }
+
+  /* Bir taarruzun anlamlı sayılması için gereken en küçük kuvvet.
+     Bunun altındaki "saldırılar" artık hiç gerçekleşmiyor: eskiden 1 asker
+     göndermek garnizonu 1 düşürüyordu ve bu, bütün saldırı-tahkimat
+     bilmecesini bedelsiz biçimde baypas etmenin yoluydu. */
+  function taarruzEsigi(deger){ return Math.max(2, Math.ceil(deger*MIN_TAARRUZ)); }
 
   // Haritadaki rozet için: hiçbir yapının aşılmadığı varsayımıyla kaba savunma.
   function effectiveDefense(region){
@@ -1563,12 +1598,22 @@
     if(ikEl){
       ikEl.textContent=ik+"%";
       var kap=ikEl.parentNode;
-      kap.classList.toggle("warn", ik<70 && ik>=45);
-      kap.classList.toggle("bad", ik<45);
+      if(kap && kap.classList){
+        kap.classList.toggle("warn", ik<70 && ik>=45);
+        kap.classList.toggle("bad", ik<45);
+      }
     }
     var gd=gecitDurumu();
     var gEl=document.getElementById("gate-val");
-    if(gEl) gEl.textContent=gd.tut+"/"+gd.toplam;
+    if(gEl){
+      gEl.textContent=gd.tut+"/"+gd.toplam+
+        (state.gecitSayaci!=null ? " · "+state.gecitSayaci+" tur" : "");
+      var gKap=gEl.parentNode;
+      if(gKap){
+        gKap.classList.toggle("hedefte", gd.gerek>0 && gd.tut>=gd.gerek);
+        gKap.classList.toggle("eksik", gd.gerek>0 && gd.tut<gd.gerek);
+      }
+    }
     renderScoreboard();
     updateControlBar();
     }
@@ -1731,8 +1776,8 @@
         // Geçit ele geçtiyse oyuncu bunu ANINDA bilmeli — modun tek ölçüsü bu.
         if(region.gecit){
           var gd=gecitDurumu();
-          showToast("⛰ "+region.gecit.ad+" senin"+
-            (gd.gerek ? " — "+gd.tut+"/"+gd.gerek+" geçit" : ""));
+          bildir(4, "⛰ "+region.gecit.ad+" senin"+
+            (gd.gerek ? " — "+gd.tut+"/"+gd.gerek+" geçit" : ""), "gecit");
         }
         doneCallback && doneCallback();
         checkVictory();
@@ -1754,14 +1799,14 @@
 
   /* Zafer artık tek bir ile bağlı değil: seçilen modun hedefine bakıyor.
      Geçit modunda "haritayı süpür" yok — dar noktaları tutmak yetiyor. */
+  /* Fetih anında yalnızca başkent hedefi denetlenir. Geçit hedefi artık
+     tur döngüsünde (gecitZaferKontrol) izleniyor — çünkü kazanmak "almak"
+     değil "tutmak". */
   function checkVictory(){
     if(state.gameOver) return;
     var h=(MODES[activeMode]||{}).hedef||{tip:"baskent"};
-    if(h.tip==="gecit"){
-      if(gecitDurumu().tut>=h.gerek) setTimeout(showVictory, 400);
-    }else if(regions[1] && regions[1].owner==="player"){
-      setTimeout(showVictory, 400);
-    }
+    if(h.tip==="gecit"){ gecitZaferKontrol(); return; }
+    if(regions[1] && regions[1].owner==="player") setTimeout(showVictory, 400);
   }
 
   function flashRegion(rid){
@@ -1771,17 +1816,76 @@
   }
 
   /* ================= Toast ================= */
+  /* Aynı mesajın üst üste yığılmasını engelleyen küçük bir tampon: eski
+     sürümde bot tahkimatı ve konvoy baskını art arda gelince ekran
+     toast duvarına dönüşüyordu. */
+  var TOAST_TAVAN=3, sonToast={metin:null, zaman:0};
   function showToast(msg){
     var zone=document.getElementById("toast-zone");
+    if(!zone) return;
+    var simdi=Date.now();
+    if(sonToast.metin===msg && simdi-sonToast.zaman<3000) return;   // spam koruması
+    sonToast={metin:msg, zaman:simdi};
+    while(zone.children.length>=TOAST_TAVAN) zone.removeChild(zone.firstChild);
     var t=document.createElement("div");
     t.className="toast";
     t.textContent=msg;
     zone.appendChild(t);
     setTimeout(function(){
       t.classList.add("fade");
-      setTimeout(function(){ t.remove(); }, 350);
+      setTimeout(function(){ if(t.parentNode) t.remove(); }, 350);
     }, 2400);
   }
+
+  /* Kritik ve stratejik olaylar toast değil BANT alır: haritanın üstünde,
+     geniş, renk kodlu ve daha uzun süreli. Oyuncunun kaçırmaması gereken
+     tek şey budur. */
+  var bantZaman=null;
+  function bantGoster(seviye, metin){
+    var el=document.getElementById("bant");
+    if(!el){ showToast(metin); return; }
+    el.className = seviye>=4 ? "bant bant-strateji" : "bant bant-kritik";
+    el.textContent=metin;
+    el.hidden=false;
+    // Yeniden akmasını tetiklemek için sınıfı bir kare sonra ekliyoruz.
+    el.classList.remove("gir");
+    void el.offsetWidth;
+    el.classList.add("gir");
+    clearTimeout(bantZaman);
+    bantZaman=setTimeout(function(){
+      el.classList.remove("gir");
+      setTimeout(function(){ el.hidden=true; }, 260);
+    }, seviye>=4 ? 5200 : 4200);
+  }
+
+  /* Tek giriş kapısı: oyunun her bildirimi buradan geçer, seviyesine göre
+     kanalı, sesi ve günlüğe yazılıp yazılmayacağı burada belirlenir. */
+  function bildir(seviye, metin, sesAdi){
+    if(seviye>=3) olayEkle(seviye, metin);
+    if(sesAdi && window.__bfSes) window.__bfSes(sesAdi);
+    if(seviye<=2) showToast(metin);
+    else bantGoster(seviye, metin);
+  }
+
+  /* ================= Duraklatma =================
+     Gerçek zamanlı bir oyunda duraklatmanın olmaması eksik özellik değil,
+     hatadır: telefon çalar, panel okunur, harita incelenir. Üç saatin de
+     tek kapısı burası. */
+  function duraklatmaAyarla(deger){
+    if(state.gameOver) return;
+    state.durakladi=!!deger;
+    var el=document.getElementById("pause-flag");
+    if(el) el.hidden=!state.durakladi;
+    var btn=document.getElementById("pause-btn");
+    if(btn){
+      btn.setAttribute("aria-pressed", state.durakladi?"true":"false");
+      btn.textContent = state.durakladi ? "▶" : "❚❚";
+      btn.setAttribute("aria-label", state.durakladi ? "Devam et" : "Duraklat");
+      btn.title = state.durakladi ? "Devam et (P)" : "Duraklat (P)";
+    }
+    if(state.durakladi) showToast("⏸ Sefer duraklatıldı — P ile devam et.");
+  }
+  function duraklatmaCevir(){ duraklatmaAyarla(!state.durakladi); }
 
   /* ================= Sheet ================= */
   var overlay=document.getElementById("overlay");
@@ -1930,7 +2034,12 @@
       qtyValEl.textContent=sendAmt;
       if(pctEl) pctEl.textContent="%"+ratioPct;
       costTag.textContent="🪖"+sendAmt+(atk.gold?" 💰"+atk.gold:"");
-      attackBtn.disabled = sendAmt<1 || !attackAvailability(atkKey).ok;
+      /* Alt sınır bilinen en iyi tahmine göre hesaplanır: kesin istihbarat
+         varsa gerçek değere, yoksa aralığın alt ucuna. Böylece keşif yapmamış
+         oyuncu haksız yere engellenmez ama "1 asker gönder" de mümkün olmaz. */
+      var esik=taarruzEsigi(kesin ? d.value
+                : (known ? savunmaAraligi(region,atkKey).alt : region.defense));
+      attackBtn.disabled = sendAmt<esik || !attackAvailability(atkKey).ok;
 
       // Tahkimatın bu saldırı tipine etkisi — keşfedilmemiş bölgede gizli.
       var effTxt;
@@ -1961,6 +2070,15 @@
       if(sendAmt<1){
         previewEl.className="outcome-preview";
         previewEl.textContent="Gönderecek askerin yok.";
+        return;
+      }
+      /* Eskiden 1 asker göndermek garnizonu 1 düşürüyordu; bu, saldırı tipi
+         seçmeyi ve keşfi tamamen gereksiz kılan bir sömürüydü. Artık bir
+         taarruzun anlamlı sayılması için asgari kuvvet gerekiyor. */
+      if(sendAmt<esik){
+        previewEl.className="outcome-preview bad";
+        previewEl.innerHTML="⚠️ Bu kuvvetle taarruz düzenlenemez — küçük bir kol "+
+          "garnizonu aşındırmaz. En az <b>"+esik+"</b> asker gerekiyor.";
         return;
       }
       if(!known){
@@ -2046,6 +2164,12 @@
       var sent=clampAmt(sendAmt);
       if(sent<1) return;
       var d=defenseAgainst(region, atkKey);
+      var esikSon=taarruzEsigi(kesin ? d.value
+                  : (known ? savunmaAraligi(region,atkKey).alt : region.defense));
+      if(sent<esikSon){
+        bildir(2, "⚠️ Bu kuvvetle taarruz düzenlenemez — en az "+esikSon+" asker gerekiyor.");
+        return;
+      }
       state.army-=sent;
       state.gold-=atk.gold;
       closeSheet();
@@ -2069,7 +2193,9 @@
           // Zafer kontrolü artık animateCapture içinde, moda göre yapılıyor.
         });
       } else {
-        var reduction=Math.max(1,Math.floor(sent*atk.softenMult));
+        /* Aşındırma artık orantılı: sabit "en az 1" tabanı kaldırıldı,
+           yerini asgari kuvvet şartı aldı (bkz. taarruzEsigi). */
+        var reduction=Math.floor(sent*atk.softenMult);
         region.defense=Math.max(1, region.defense-reduction);
         drawMap();
         flashRegion(region.id);
@@ -2580,7 +2706,7 @@
   var tickTimer=null, raidTimer=null, botTimer=null;
 
   function tick(){
-    if(state.gameOver) return;
+    if(state.gameOver || state.durakladi) return;
     var goldGain=0, armyGain=0, ownedCount=0;
     if(routesDirty) rebuildRoutes();      // ikmal de burada tazeleniyor
     regions.forEach(function(t){
@@ -2612,7 +2738,7 @@
       var kayip=Math.min(state.gold, 6+randInt(0,8));
       if(kayip>0){
         state.gold-=kayip; state.konvoyKaybi+=kayip;
-        showToast("🚚 Konvoy baskına uğradı — "+kayip+" altın kaybettin. Riskli hattı koru.");
+        bildir(3, "🚚 Konvoy baskına uğradı — "+kayip+" altın gitti. Riskli hattı koru.", "ikmal");
       }
     }
 
@@ -2637,12 +2763,63 @@
       showToast("🎖️ Fethedilen topraklar büyüdükçe asker üretimin hızlandı! (+"+expansionBonus+"/tur)");
     }
     goldGain=Math.round(goldGain);          // ikmal çarpanı kesirli üretebilir
-    state.gold+=goldGain;
+
+    /* ---- Ordu bakımı (v0.2) ----
+       Eski sürümde altın biriktirmenin hiçbir bedeli yoktu; en güvenli
+       strateji beklemek, biriktirmek ve tek hamlede ezmekti. Bakım gideri
+       bu dengesizliği kırar: büyük ordu tutmak artık bir karar. */
+    var bakim=Math.ceil(state.army/BAKIM_BOLEN);
+    var net=goldGain-bakim;
+    state.sonUretim=goldGain; state.sonBakim=bakim; state.sonGelir=net;
+    state.bakimToplam+=bakim;
+
+    if(state.gold+net < 0){
+      /* Hazine bakımı karşılamıyor: fark kadar asker firar eder.
+         Ceza gizli değil, açıkça bildirilir. */
+      var acik=Math.abs(state.gold+net);
+      var firar=Math.max(1, Math.ceil(acik/2));
+      state.army=Math.max(0, state.army-firar);
+      state.gold=0;
+      bildir(3, "💸 Hazine bakımı karşılamıyor — "+firar+" asker firar etti. "+
+                "Orduyu küçült ya da geliri artır.", "kayip");
+    } else {
+      state.gold+=net;
+    }
+
     state.army=Math.min(state.maxArmy, state.army+armyGain);
     state.turn+=1;
     invalidateRoutes();          // kavrulma süresi dolmuş olabilir
-    if(goldGain>0) showGoldPopup(goldGain);
+    if(net>0) showGoldPopup(net);
+    gecitZaferKontrol();
     drawMap();
+  }
+
+  /* ---- Geçit zaferi artık ANLIK DEĞİL, TUTMAYA dayalı ----
+     Eski sürümde 4. geçit alındığı an oyun bitiyordu; geçidi kaybetmenin ise
+     hiçbir sonucu yoktu. Artık hedefe ulaşınca bir sayaç başlıyor: o kadar tur
+     boyunca ağı elinde tutabilirsen sefer senin. Bir geçit düşerse sayaç
+     sıfırlanır — oyunun en gergin anı burada doğuyor. */
+  function gecitZaferKontrol(){
+    if(state.gameOver) return;
+    var h=(MODES[activeMode]||{}).hedef||{};
+    if(h.tip!=="gecit") return;
+    var gd=gecitDurumu();
+    if(gd.tut>=h.gerek){
+      if(state.gecitSayaci==null){
+        state.gecitSayaci=h.tut||GECIT_TUTMA;
+        bildir(4, "⛰ Geçit ağı sende ("+gd.tut+"/"+gd.toplam+") — "+
+                  state.gecitSayaci+" tur tutarsan sefer kazanılır.", "gecit");
+      } else {
+        state.gecitSayaci--;
+        if(state.gecitSayaci<=0){ state.gecitSayaci=0; showVictory(); return; }
+        if(state.gecitSayaci<=3){
+          bildir(4, "⛰ Zafere "+state.gecitSayaci+" tur — geçitleri bırakma.", "gecit");
+        }
+      }
+    } else if(state.gecitSayaci!=null){
+      state.gecitSayaci=null;
+      bildir(3, "⛰ Geçit ağı kırıldı — zafer sayacı sıfırlandı.", "gecit");
+    }
   }
 
   function showGoldPopup(amount){
@@ -2655,36 +2832,77 @@
     setTimeout(function(){ el.remove(); }, 1350);
   }
 
-  /* Baskın artık gerçek bir tehdit: savunma yetersizse önce bölgeyi yıpratır
-     (garnizonu erir, tahkimatı yıkılır), yıpranmış bölge bir daha vurulursa
-     düşmanın eline geçer. Elinde başkentten başka bölge kalmadıysa ve başkent
-     kuşatılmışsa gelen baskın oyunu bitirir. */
-  function tryRaid(){
-    if(state.gameOver || animating) return;
+  /* ================= BASKIN (v0.2) =================
+     Eski sürümde baskın yalnızca sınır illerini vuruyordu; düşmanla teması
+     olmayan oyuncu hiç baskın yemiyor, sınırsız altın biriktirip istediği an
+     çıkabiliyordu. Ayrıca gücü yalnızca geçen zamana bağlıydı ve düşen bölge
+     rastgele bir bota geçiyordu. Üçü de burada düzeltildi. */
 
-    var borders=regions.filter(function(r){
-      return r.owner==="player" && r.type!=="capital" && isAdjacentToEnemy(r);
+  /* Hedef havuzu: sınır illeri + ikmali kesilmiş/çok düşük iç bölgeler.
+     Böylece uzun ve beslenmeyen çıkıntı yapmak gerçek bir risk taşır. */
+  function baskinHedefleri(){
+    var sinir=[], zayif=[];
+    regions.forEach(function(r){
+      if(r.owner!=="player" || r.type==="capital") return;
+      if(isAdjacentToEnemy(r)) sinir.push(r);
+      else if((r.ikmal==null?100:r.ikmal) < 40) zayif.push(r);
     });
-    var target, lastStand=false;
-    if(borders.length){
-      target=borders[randInt(0,borders.length-1)];
+    return {sinir:sinir, zayif:zayif};
+  }
+
+  /* Hedefe komşu düşman illerinin sahibi olan botlar; ateşkesi olanlar elenir.
+     Eski kod yalnızca İLK komşuya bakıyordu, bu yüzden birden fazla cepheye
+     komşu bir ilde ateşkes yanlış bota uygulanıyordu — ödenen bedelin
+     karşılığı gelmiyordu. */
+  function saldirabilecekBotlar(target){
+    var out=[], gorulen={};
+    target.neighbors.forEach(function(nid){
+      var n=regions[nid];
+      if(n.owner!=="enemy" || n.botId==null) return;
+      var b=bots[n.botId];
+      if(!b || gorulen[b.id]) return;
+      gorulen[b.id]=true;
+      if(b.ateskes>state.turn) return;
+      out.push(b);
+    });
+    return out;
+  }
+
+  /* Baskın gücü artık oyuncunun gerçek gücüyle ölçekleniyor: pasif oyuncu
+     ezilmiyor, büyüyen oyuncu da rahatlamıyor. */
+  function baskinGucu(){
+    var sahip=0;
+    regions.forEach(function(r){ if(r.owner==="player") sahip++; });
+    return Math.max(4, Math.round(6 + state.raidCount*0.5 + state.army*0.20 + sahip*0.5));
+  }
+
+  function tryRaid(){
+    if(state.gameOver || state.durakladi || animating) return;
+
+    var havuz=baskinHedefleri();
+    var target=null, lastStand=false, icBaskin=false;
+    if(havuz.sinir.length && (!havuz.zayif.length || Math.random()<0.75)){
+      target=havuz.sinir[randInt(0,havuz.sinir.length-1)];
+    } else if(havuz.zayif.length){
+      target=havuz.zayif[randInt(0,havuz.zayif.length-1)];
+      icBaskin=true;                       // ikmalsiz iç bölgeye sızma
     } else {
       var cap=regions[0];
       if(cap.owner!=="player" || !isAdjacentToEnemy(cap)) return;
       target=cap; lastStand=true;
     }
 
-    /* Baskını yapan botu belirle: hedefe komşu düşman bölgelerinin sahibi.
-       O botla ateşkes varsa bu tur baskın olmaz — ateşkes gerçek bir etki. */
-    var saldiranBot=null;
-    target.neighbors.forEach(function(nid){
-      var n=regions[nid];
-      if(n.owner==="enemy" && n.botId!=null && saldiranBot===null) saldiranBot=bots[n.botId]||null;
-    });
-    if(saldiranBot && saldiranBot.ateskes>state.turn) return;
+    var adaylar=saldirabilecekBotlar(target);
+    var saldiranBot=adaylar.length ? adaylar[randInt(0,adaylar.length-1)] : null;
+    if(!saldiranBot){
+      if(!icBaskin) return;                // komşu cephelerin hepsiyle ateşkes var
+      var serbest=bots.filter(function(b){ return b.ateskes<=state.turn; });
+      if(!serbest.length) return;
+      saldiranBot=serbest[randInt(0,serbest.length-1)];
+    }
 
     state.raidCount+=1;
-    var power=6+state.raidCount;
+    var power=baskinGucu();
 
     /* Düşman zamanla akıllanır: tahkimatına en az takılan tipi seçme olasılığı
        yükselir (tavan %75 — kurduğun savunma hep bir şans taşır). */
@@ -2712,10 +2930,28 @@
       return;
     }
 
+    /* Başkent artık tek vuruşta düşmüyor. Önce kuşatılıyor: garnizon eriyor,
+       oyuncu net bir uyarı alıyor ve takviye gönderme şansı buluyor. Ancak
+       başkent tamamen çıplakken gelen baskın seferi bitiriyor. Yenilgi
+       böylece hem ulaşılabilir hem adil oluyor. */
     if(lastStand){
       flashRegion(target.id);
+      var korumaVar=(target.garrison>0) || defenseStructures(target).length>0;
+      if(korumaVar){
+        var kayip=Math.max(1, Math.round((target.garrison||0)*BASKENT_KAYIP));
+        target.garrison=Math.max(0,(target.garrison||0)-kayip);
+        state.baskentUyari=state.turn;
+        addShake(7);
+        addBurst(c.x, c.y, 30, ["#b5432f","#e0603c","#8d8266"], 2.1, 1000);
+        addFloater(c.x, c.y-8, "-"+kayip+" 🪖", "#e08a72");
+        bildir(3, "🚨 BAŞKENT KUŞATMA ALTINDA — "+kayip+" asker kaybettin. "+
+                  "Garnizon "+target.garrison+". Takviye gönder, yoksa sefer biter.", "kayip");
+        drawMap();
+        return;
+      }
       addShake(9);
       addBurst(c.x, c.y, 46, ["#b5432f","#e0603c","#8d8266"], 2.4, 1200);
+      olayEkle(4, "Başkent düştü — sefer "+state.turn+". turda sona erdi.");
       drawMap();
       setTimeout(showDefeat, 500);
       return;
@@ -2726,20 +2962,26 @@
     flashRegion(target.id);
 
     if(stripped){
-      var bot=bots.length ? bots[randInt(0,bots.length-1)] : null;
+      var gecitMi=!!target.gecit;
       target.owner="enemy";
       target.type="enemy";
       target.building=null;
       target.defenses=[];
       target.garrison=0;
-      target.botId = bot ? bot.id : null;
-      target.defense = clamp(power + randInt(-2,3), 3, 46);
+      // Bölge, baskını yapan cepheye geçer — cephe hattı tutarlı kalsın diye.
+      target.botId = saldiranBot ? saldiranBot.id : null;
+      target.defense = clamp(power + randInt(-2,3), 3, 52);
       state.army=Math.max(0, state.army-3);
       addShake(6);
       addBurst(c.x, c.y, 34, ["#b5432f","#e0603c","#8d8266"], 2.1, 1000);
       addFloater(c.x, c.y-8, "BÖLGE DÜŞTÜ", "#e08a72");
       invalidateRoutes();
-      showToast("🚨 "+atk.icon+" "+target.name+" düştü! Savunmasız bıraktığın toprak düşmanın eline geçti.");
+      bildir(gecitMi?4:3,
+        (gecitMi?"⛰ ":"🚨 ")+target.name+" düştü — "+
+        (icBaskin ? "ikmalsiz bıraktığın iç bölgeye sızdılar."
+                  : "savunmasız sınır toprağı düşmanın eline geçti.")+
+        (gecitMi?" Geçit elden çıktı.":""),
+        gecitMi?"gecit":"kayip");
     } else {
       var lost=Math.max(1, Math.round((target.garrison||0)*0.5));
       target.garrison=Math.max(0,(target.garrison||0)-lost);
@@ -2792,7 +3034,7 @@
   }
 
   function botTickAll(){
-    if(state.gameOver || animating || !bots.length) return;
+    if(state.gameOver || state.durakladi || animating || !bots.length) return;
     var changed=false;
     bots.forEach(function(bot){
       var diff=BOT_DIFF[bot.difficulty];
@@ -2856,6 +3098,8 @@
 
   function startLoops(){
     state.started=true;
+    state.durakladi=false;
+    duraklatmaAyarla(false);
     bfStatBump("seferSayisi");
     tickTimer=setInterval(tick, LOOP.tick);
     raidTimer=setInterval(tryRaid, LOOP.raid);
@@ -2943,9 +3187,11 @@
       "<div class='legend-row'><span class='lic'>🏗️</span><span><b>Rakip de ilerler</b> — botlar sadece boş toprağa yayılmakla kalmaz, zamanla bölgelerine <b>savunma yapısı diker</b> ve önce sana komşu olan cepheleri tahkim eder. Bugün piyadeyle alabildiğin bir bölge, birkaç tur sonra duvarlı olabilir: geciktiğin her cephe pahalılaşır.</span></div>"+
       "<button id='start-btn'>"+(isFirstTime?"Anladım, Başla":"Kapat")+"</button>";
     modalOverlay.classList.add("show");
+    if(!isFirstTime) modalDuraklat();
     document.getElementById("start-btn").addEventListener("click", function(){
       modalOverlay.classList.remove("show");
       if(isFirstTime) startLoops();
+      else modalDevam();
     });
   }
 
@@ -3010,6 +3256,54 @@
   document.getElementById("info-btn").addEventListener("click", function(){
     if(!state.started) return;
     showInstructions(false);
+  });
+
+  /* ---- Otomatik duraklatma ----
+     Yardım, çıkış onayı gibi okuma gerektiren katmanlar açıkken saatler
+     durur. Oyuncunun kuralları okurken baskın yemesi tasarım değil kazadır.
+     Katman kapanınca yalnızca OTOMATİK duraklatılmışsa devam edilir; oyuncu
+     kendisi duraklattıysa duraklatma korunur. */
+  var otoDuraklatildi=false;
+  function modalDuraklat(){
+    if(state.gameOver || state.durakladi) return;
+    otoDuraklatildi=true;
+    state.durakladi=true;
+    var el=document.getElementById("pause-flag");
+    if(el) el.hidden=false;
+  }
+  function modalDevam(){
+    if(!otoDuraklatildi) return;
+    otoDuraklatildi=false;
+    duraklatmaAyarla(false);
+  }
+
+  var pauseBtn=document.getElementById("pause-btn");
+  if(pauseBtn){
+    pauseBtn.addEventListener("click", function(){
+      if(!state.started) return;
+      otoDuraklatildi=false;
+      duraklatmaCevir();
+    });
+  }
+
+  /* ---- Klavye ----
+     Şartname §06'daki girdi haritasının bu fazda uygulanabilen kısmı.
+     Harita gezinme (ok tuşları) Faz 11'de eklenecek. */
+  document.addEventListener("keydown", function(e){
+    if(e.metaKey || e.ctrlKey || e.altKey) return;
+    var hedef=e.target;
+    if(hedef && (hedef.tagName==="INPUT" || hedef.tagName==="TEXTAREA")) return;
+    var k=e.key;
+    if(k==="p" || k==="P"){
+      if(!state.started || state.gameOver) return;
+      e.preventDefault(); otoDuraklatildi=false; duraklatmaCevir();
+    } else if(k==="?" || k==="F1"){
+      if(!state.started || state.gameOver) return;
+      e.preventDefault(); showInstructions(false);
+    } else if(k==="Escape"){
+      if(sheet && sheet.classList.contains("open")) closeSheet();
+      else if(menuSheet && menuSheet.classList.contains("open")) closeMenuSheet();
+    }
   });
 
   /* ================= Alt sekme çubuğu =================
@@ -3099,12 +3393,14 @@
       "<button id='quit-yes'>Evet, seferden çık</button>"+
       "<button id='quit-no'>Vazgeç</button>";
     modalOverlay.classList.add("show");
+    modalDuraklat();
     document.getElementById("quit-yes").addEventListener("click", function(){
       clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
       location.reload();
     });
     document.getElementById("quit-no").addEventListener("click", function(){
       modalOverlay.classList.remove("show");
+      modalDevam();
     });
   }
   document.getElementById("menu-quit").addEventListener("click", confirmQuit);
@@ -3162,6 +3458,30 @@
     }
     drawMap();                        // HUD'daki altın ve skorbord tazelensin
     return true;
+  };
+
+  /* ================= Test dikişi =================
+     Kural katmanı DOM'a bağlı olmadığı için başsız koşulabiliyor; bu nesne
+     testlerin motora tek giriş noktası. Oyun akışını değiştirmez, yalnızca
+     okunur referans verir (şartname §20). */
+  window.__bfTest={
+    state:state, regions:regions, bots:bots,
+    MODES:MODES, BUILDINGS:BUILDINGS, ATTACKS:ATTACKS, NUKES:NUKES, GECITLER:GECITLER,
+    sabitler:{MIN_TAARRUZ:MIN_TAARRUZ, BAKIM_BOLEN:BAKIM_BOLEN,
+              GECIT_TUTMA:GECIT_TUTMA, IKMAL_ADIM:IKMAL_ADIM, IKMAL_TABAN:IKMAL_TABAN,
+              ROTA_GELIR:ROTA_GELIR, GECIT_GELIR:GECIT_GELIR,
+              KESIF_BEDEL:KESIF_BEDEL, KESIF_SURE:KESIF_SURE},
+    defenseAgainst:defenseAgainst, taarruzEsigi:taarruzEsigi,
+    cepheAnalizi:cepheAnalizi, effectiveDefense:effectiveDefense,
+    hesaplaIkmal:hesaplaIkmal, rotaDurumu:rotaDurumu, genelIkmal:genelIkmal,
+    gecitDurumu:gecitDurumu, gecitZaferKontrol:gecitZaferKontrol,
+    baskinGucu:baskinGucu, baskinHedefleri:baskinHedefleri,
+    saldirabilecekBotlar:saldirabilecekBotlar,
+    tick:tick, tryRaid:tryRaid, botTickAll:botTickAll,
+    tryBuild:tryBuild, tryReinforce:tryReinforce, launchNuke:launchNuke,
+    invalidateRoutes:invalidateRoutes, drawMap:drawMap,
+    bildir:bildir, olaylar:function(){ return state.olaylar; },
+    modAyarla:function(k){ return window.__bfSetMode(k); }
   };
 
   window.__bfShowInstructions=function(){ showInstructions(true); };

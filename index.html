@@ -111,7 +111,10 @@
       <div class="hud-sep"></div>
       <div class="hud-stat turn"><span class="hud-ico">◉</span><span class="hud-val" id="turn-val">YIL 2026 · Ç1</span></div>
     </div>
-    <button id="info-btn">i</button>
+    <div class="hud-sag">
+      <button id="pause-btn" aria-label="Duraklat" aria-pressed="false" title="Duraklat (P)">❚❚</button>
+      <button id="info-btn" aria-label="Nasıl oynanır" title="Nasıl oynanır (F1)">i</button>
+    </div>
   </div>
 
   <div id="map-wrap">
@@ -174,6 +177,18 @@
   <!-- Sağ tık / basılı tut ile açılan bağlama menüsü. İçeriği sabit değil:
        yalnızca o bölgede O AN yapılabilecek eylemler listelenir. -->
   <div id="ctx-menu" hidden></div>
+
+  <!-- Kritik ve stratejik olaylar: toast değil bant. Ekran okuyucular da
+       duysun diye canlı bölge; sık değişmediği için "polite". -->
+  <div id="bant" role="status" aria-live="polite" hidden></div>
+
+  <!-- Duraklatma bayrağı: haritanın üstünde sabit, oyuncunun neden hiçbir
+       şeyin ilerlemediğini anlaması için. -->
+  <div id="pause-flag" hidden>
+    <span class="pf-ico" aria-hidden="true">⏸</span>
+    <span>SEFER DURAKLATILDI</span>
+    <span class="pf-ipucu">P</span>
+  </div>
 
   <div id="toast-zone"></div>
 

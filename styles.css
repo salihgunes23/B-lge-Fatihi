@@ -1182,3 +1182,58 @@ button.hud-stat:focus-visible{outline:2px solid var(--gold); outline-offset:-2px
 .build-btn .a-name{align-items:center;}
 .ikmal-satir .a-cost{font-weight:700;}
 .gecit-satir .a-name{letter-spacing:0.02em;}
+
+/* ==========================================================================
+   v0.2 — CİLA VE ERİŞİLEBİLİRLİK
+   Okunabilirlik eşikleri, dokunma hedefleri, dikey istifleme düzeni.
+   Bu blok bilinçli olarak dosyanın sonunda: aynı özgüllükteki eski
+   kuralları geçersiz kılar ve neyin neden değiştiği tek yerde durur.
+   ========================================================================== */
+
+/* Bilgi taşıyan hiçbir metin 10 px'in altına inmiyor (şartname §18). */
+.build-card .bc-name{font-size:10px;}
+.build-card .bc-cost{font-size:11px;}
+.atk-type .at-name{font-size:10.5px;}
+.atk-type .at-eff{font-size:10px;}
+.atk-type .at-cost{font-size:10px;}
+.atk-type .at-lock{font-size:9.5px;}
+.lb-head{font-size:10px;}
+.lb-rank{font-size:10px;}
+.lb-val{font-size:11px;}
+.bb-tab{font-size:10px;}
+.hud-stat.turn .hud-val{font-size:11.5px;}
+
+/* Dokunma hedefi en az 40 px (mobilde parmakla isabet). */
+.qty-preset{padding:11px 6px; font-size:11.5px;}
+.qty-btn{width:42px; height:42px;}
+.lb-row{padding:9px 10px;}
+
+/* Harita klavye odağı görünür olmalı. */
+#map:focus-visible{outline:3px solid var(--gold); outline-offset:2px;}
+#map:focus{outline:none;}
+
+/* Alt katmanların dikey istifi: alt çubuk → seçim şeridi → kontrol şeridi
+   → katman seçici. Hiçbiri diğerinin üstüne binmiyor. */
+#secim-serit{bottom:64px;}
+#hud-bottom{bottom:104px;}
+#katman-secici{bottom:140px;}
+@media (max-width:520px){
+  #katman-secici{bottom:140px;}
+}
+
+/* Azaltılmış hareket: efekt yerine statik vurgu — bilgi kaybolmaz. */
+@media (prefers-reduced-motion: reduce){
+  .toast{animation:none;}
+  .toast.fade{animation:none; opacity:0;}
+  #bant{transition:opacity 100ms linear;}
+  .gold-popup{animation:none; opacity:1;}
+}
+
+/* Dar telefonlarda HUD kapsülü sığmazsa yatay kaydırılabilir kalır —
+   bilgi kırpılmaz, düzen bozulmaz (şartname §19). */
+@media (max-width:400px){
+  #hud{padding:8px 8px 0;}
+  .hud-pill{max-width:100%; overflow-x:auto; scrollbar-width:none;}
+  .hud-pill::-webkit-scrollbar{display:none;}
+  .hud-stat{padding:8px 9px;}
+}

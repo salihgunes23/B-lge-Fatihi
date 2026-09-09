@@ -92,7 +92,11 @@ export function oyunuYukle(opts={}){
     devicePixelRatio: 1,
     requestAnimationFrame(){ return 1; },
     cancelAnimationFrame(){},
-    setTimeout(){ return 1; }, clearTimeout(){},
+    /* Zamanlayıcılar otomatik çalışmaz ama KAYBOLMAZ: kuyruğa girer ve
+       test kendi ilerletir. Eskiden hepsi yutuluyordu; bu, gecikmeli
+       çalışan yenilgi/zafer ekranlarını testten gizliyordu. */
+    setTimeout(fn, ms){ sandbox.__kuyruk.push({fn, ms: ms || 0}); return sandbox.__kuyruk.length; },
+    clearTimeout(){},
     setInterval(){ return 1; }, clearInterval(){},
     matchMedia(){ return {matches:false, addEventListener(){}}; },
     getComputedStyle(){ return {paddingLeft:'8px', paddingRight:'8px',
@@ -101,7 +105,14 @@ export function oyunuYukle(opts={}){
     navigator:{ userAgent:'node' },
     location:{ reload(){ sandbox.__yenilendi=true; } },
     addEventListener(){}, removeEventListener(){}, dispatchEvent(){ return true; },
-    __yenilendi:false
+    __yenilendi:false,
+    __kuyruk:[],
+    /* Bekleyen zamanlayıcıları çalıştır (varsayılan: hepsi). */
+    __zamanIlerlet(){
+      const isler = sandbox.__kuyruk.splice(0, sandbox.__kuyruk.length);
+      isler.sort((a, b) => a.ms - b.ms).forEach(i => { try{ i.fn(); }catch(e){} });
+      return isler.length;
+    }
   };
   sandbox.window = sandbox;
   sandbox.self = sandbox;

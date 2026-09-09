@@ -151,7 +151,10 @@
         <div id="lb-body"></div>
       </div>
     </div>
-    <canvas id="map"></canvas>
+    <!-- Harita klavyeyle de gezilebilir: ok tuşları komşu ile geçer,
+         Enter paneli açar. Seçim, aşağıdaki canlı bölgeye duyurulur. -->
+    <canvas id="map" tabindex="0" role="application"
+            aria-label="Türkiye haritası — ok tuşlarıyla il seç, Enter ile aç"></canvas>
   </div>
 
   <div id="hud-bottom">
@@ -164,7 +167,7 @@
   <!-- Seçim şeridi: panel kapansa da son incelenen bölgenin künyesi burada
        kalır. Oyuncu iki hedefi karşılaştırırken paneli açıp kapatmak zorunda
        kalmasın diye. -->
-  <div id="secim-serit" hidden>
+  <div id="secim-serit" role="status" aria-live="polite" hidden>
     <span class="ss-ad" id="ss-ad">—</span>
     <span class="ss-veri" id="ss-veri"></span>
     <button class="ss-kapat" id="ss-kapat" aria-label="Seçimi bırak">✕</button>
@@ -234,7 +237,7 @@
   <div id="toast-zone"></div>
 
   <div id="overlay"></div>
-  <div id="sheet">
+  <div id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
     <div class="sheet-head">
       <div class="sheet-icon" id="sheet-icon">🏳️</div>
       <div>
@@ -250,7 +253,7 @@
 
 <!-- Açılıştan (mağaza) ve oyun içinden (talimat/zafer/yenilgi) ortak kullanılıyor -->
 <div id="modal-overlay">
-  <div class="modal-box" id="modal-box"></div>
+  <div class="modal-box" id="modal-box" role="dialog" aria-modal="true"></div>
 </div>
 
 <script src="ses.js"></script>

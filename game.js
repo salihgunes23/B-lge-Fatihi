@@ -2,31 +2,215 @@
   "use strict";
 
   /* ================= Config ================= */
-  var GRID_W=52, GRID_H=96, CELL=6;
-  var REGION_COUNT=20;
+  // Türkiye haritası. Izgara, dikey ekranda okunabilsin diye enlemde biraz gerilir.
+  var GRID_W=140, GRID_H=80, CELL=3;
+  var REGION_COUNT=81;      // 81 il
+
+  /* Kıyı çizgisi boylam/enlem çokgeni olarak tanımlı: çözünürlükten bağımsız. */
+  var GEO={lon0:25.4, lon1:45.3, lat0:35.5, lat1:42.5};
+
+  var ANATOLIA=[
+    [29.05,41.15],[30.50,41.02],[31.80,41.32],[33.30,41.88],[34.20,41.75],[35.15,42.03],
+    [36.00,41.45],[36.90,41.05],[38.40,40.92],[39.70,41.02],[41.00,41.38],[41.55,41.50],
+    [42.60,41.10],[43.45,40.60],[43.65,40.10],[44.80,39.72],[44.40,38.35],[44.05,37.55],
+    [44.35,37.20],[42.90,37.32],[42.35,37.25],[41.20,37.08],[40.20,36.85],[38.80,36.70],
+    [37.50,36.62],[36.65,36.15],[36.15,35.85],[36.30,36.55],[35.75,36.78],[34.95,36.80],
+    [34.55,36.28],[33.70,36.12],[33.05,36.05],[32.55,36.10],[32.00,36.30],[31.30,36.18],
+    [30.70,36.98],[30.20,36.28],[29.60,36.18],[29.10,36.68],[28.45,36.75],[28.05,36.58],
+    [27.40,36.70],[27.75,37.08],[27.25,37.05],[27.60,37.48],[27.15,37.62],[27.35,38.05],
+    [26.85,38.18],[27.25,38.45],[26.72,38.60],[27.05,38.95],[26.62,39.25],[26.98,39.55],
+    [26.20,39.62],[26.15,40.10],[27.00,40.28],[28.10,40.30],[29.10,40.42]
+  ];
+
+  var THRACE=[
+    [26.30,40.15],[26.35,40.65],[26.05,40.80],[26.35,41.30],[26.60,41.68],[27.55,42.02],
+    [28.15,41.98],[28.90,41.15],[28.70,40.92],[27.90,40.88],[27.10,40.82],[26.65,40.55]
+  ];
+
+  // Boğaz oyun ölçeğinde bir hücreden ince; iki yakayı bağlı sayıyoruz.
+  var BOSPHORUS=[[28.75,40.86],[29.20,40.86],[29.20,41.30],[28.75,41.30]];
+
+  /* Gürültü sonrası zorla uygulanan maskeler: bunlar olmadan kıyı düzeltmesi
+     Marmara'yı doldurup Van Gölü'nü kapatıyor, siluet tanınmaz hâle geliyor. */
+  var SEA_MASKS=[
+    [[26.60,40.20],[29.15,40.30],[29.20,40.84],[27.00,40.86],[26.55,40.55]]   // Marmara
+  ];
+  var LAKES=[{lon:43.00, lat:38.62, r:0.36}];   // Van Gölü
+
+  /* Türkiye'nin 81 ili, il merkezi koordinatlarıyla. Bölge sınırları bu
+     merkezlerden Voronoi ile üretilir — gerçek il sınırlarının iyi bir
+     yaklaşımıdır, çünkü sınırlar zaten büyük ölçüde merkezlere eşit uzaklıkta
+     oluşmuştur. Elimizde resmi sınır verisi yok; bu bilinçli bir yaklaşım. */
+  var ILLER=[
+    ["İstanbul",41.01,28.98],["Ankara",39.93,32.86],["İzmir",38.42,27.14],
+    ["Bursa",40.19,29.06],["Antalya",36.90,30.70],["Adana",37.00,35.32],
+    ["Konya",37.87,32.48],["Şanlıurfa",37.17,38.79],["Gaziantep",37.07,37.38],
+    ["Kocaeli",40.77,29.92],["Mersin",36.81,34.64],["Diyarbakır",37.91,40.24],
+    ["Kayseri",38.73,35.49],["Eskişehir",39.78,30.52],["Samsun",41.29,36.33],
+    ["Denizli",37.78,29.09],["Şanlıurfa2",0,0],
+    ["Kahramanmaraş",37.58,36.94],["Malatya",38.35,38.31],["Erzurum",39.90,41.27],
+    ["Van",38.49,43.38],["Batman",37.88,41.13],["Elazığ",38.68,39.22],
+    ["Sivas",39.75,37.02],["Manisa",38.62,27.43],["Tekirdağ",40.98,27.51],
+    ["Balıkesir",39.65,27.89],["Sakarya",40.78,30.40],["Aydın",37.85,27.84],
+    ["Muğla",37.22,28.36],["Afyonkarahisar",38.76,30.54],["Trabzon",41.00,39.72],
+    ["Ordu",40.98,37.88],["Tokat",40.31,36.55],["Mardin",37.31,40.74],
+    ["Adıyaman",37.76,38.28],["Zonguldak",41.45,31.79],["Osmaniye",37.07,36.25],
+    ["Çorum",40.55,34.95],["Kütahya",39.42,29.98],["Hatay",36.20,36.16],
+    ["Ağrı",39.72,43.05],["Isparta",37.77,30.55],["Yozgat",39.82,34.81],
+    ["Aksaray",38.37,34.03],["Edirne",41.68,26.56],["Düzce",40.84,31.16],
+    ["Muş",38.73,41.49],["Kırklareli",41.74,27.22],["Uşak",38.68,29.41],
+    ["Niğde",37.97,34.68],["Bitlis",38.40,42.11],["Rize",41.02,40.52],
+    ["Amasya",40.65,35.83],["Siirt",37.93,41.94],["Giresun",40.91,38.39],
+    ["Çanakkale",40.15,26.41],["Karaman",37.18,33.22],["Kastamonu",41.39,33.78],
+    ["Kırıkkale",39.85,33.51],["Nevşehir",38.62,34.71],["Bolu",40.74,31.61],
+    ["Erzincan",39.75,39.49],["Kars",40.60,43.10],["Şırnak",37.52,42.46],
+    ["Burdur",37.72,30.29],["Bingöl",38.88,40.50],["Kırşehir",39.15,34.16],
+    ["Bilecik",40.14,29.98],["Yalova",40.66,29.28],["Karabük",41.20,32.63],
+    ["Sinop",42.03,35.15],["Çankırı",40.60,33.62],["Hakkâri",37.57,43.74],
+    ["Bartın",41.64,32.34],["Kilis",36.72,37.12],["Gümüşhane",40.46,39.48],
+    ["Iğdır",39.92,44.04],["Ardahan",41.11,42.70],["Artvin",41.18,41.82],
+    ["Bayburt",40.26,40.23],["Tunceli",39.11,39.55]
+  ].filter(function(p){ return p[1]!==0; });
   var SEA_FILL="#0d1922";
+  /* Palet artık gameplay anlamı taşıyor: lacivert=sen, bordo=düşman,
+     mat gri-taş=nötr, amber=kaynak/aksiyon. Yeşil bilinçli olarak
+     neredeyse hiç kullanılmıyor — sahiplik rengi karıştırılmasın diye. */
   var CATEGORY_COLORS={
-    player:[79,143,116],
-    enemy:[110,58,46],
-    enemyCapital:[130,40,58],
-    resource:[128,98,42],
-    empty:[76,88,70],
-    obstacle:[70,70,68],
-    flashHit:[181,67,47],
+    player:[54,84,124],
+    enemy:[120,42,54],
+    enemyCapital:[148,36,50],
+    resource:[150,112,48],
+    empty:[80,84,90],
+    obstacle:[68,70,76],
+    flashHit:[196,84,54],
     wall:[176,166,142],
-    hover:[230,190,60]
+    hover:[214,164,58],
+    scorched:[52,46,44],
+    selected:[112,172,232]
   };
 
   var BUILDINGS={
-    tufek:{name:"Tüfek Mevzisi", icon:"🔫", cost:30, def:5, desc:"+5 savunma"},
-    duvar:{name:"Duvar", icon:"🧱", cost:65, def:8, desc:"+8 savunma (orta zorlukta bir engel)"},
-    topcu:{name:"Topçu", icon:"💣", cost:100, def:10, splash:4, desc:"+10 savunma, komşu bölgelere +4"},
-    hava:{name:"Hava Savunması", icon:"🛰️", cost:130, def:14, desc:"+14 savunma (en güçlü kalkan)"},
-    fabrika:{name:"Fabrika", icon:"🏭", cost:70, gold:4, desc:"+4 altın / tur"},
-    kent:{name:"Kent", icon:"🏙️", cost:140, gold:2, army:2, desc:"+2 altın, +2 asker / tur"}
+    tufek:{name:"Tüfek Mevzisi", cost:30, def:5, desc:"+5 savunma · piyadeyi ×1.5 durdurur · hava akınına çaresiz"},
+    duvar:{name:"Duvar", cost:65, def:8, desc:"+8 savunma · piyadeyi ×1.8 durdurur · topçu barajı etkisiz kılar"},
+    hava:{name:"Hava Savunması", cost:130, def:14, sam:true, desc:"+14 savunma · hava akınını ×2.4 ezer · gelen füzeyi önleyebilir"},
+    fabrika:{name:"Fabrika", cost:70, gold:4, desc:"+4 altın / tur · Topçu Barajı ve Hava Akını saldırılarını açar"},
+    kent:{name:"Kent", cost:140, gold:2, army:2, popCap:35, desc:"+2 altın, +2 asker/tur · asker tavanını +35 yükseltir"},
+    silo:{name:"Füze Silosu", cost:160, desc:"Nükleer fırlatma için şart · üretim vermez"}
   };
-  var WALL_ATTRITION_DIVISOR=50;
-  var WALL_DEFENSE_BONUS=6;
+
+  /* Bina ve tahkimat işaretleri — askeri harita sembolojisi gibi çizgi tabanlı.
+     Her sembol birim kare (0..1) üzerinde tanımlanır, bu yüzden haritada 14px,
+     panelde 40px olarak aynı netlikte çizilir. Amaç tek bakışta tanınmak. */
+  var SYMBOLS={
+    // Tüfek Mevzisi — çatılı ev, penceresinden dışarı uzanan namlular
+    tufek:function(p){
+      p.poly([.10,.44, .50,.17, .90,.44]);          // çatı
+      p.rect(.17,.44,.66,.38);                       // gövde
+      p.rect(.50,.52,.24,.16);                       // pencere
+      p.line(.54,.57,.97,.48);                       // namlu 1
+      p.line(.54,.64,.97,.58);                       // namlu 2
+      p.rect(.27,.62,.14,.20);                       // kapı
+    },
+    // Duvar — mazgallı taş sur
+    duvar:function(p){
+      p.poly([.08,.46, .08,.28, .26,.28, .26,.46, .40,.46, .40,.28, .58,.28,
+              .58,.46, .72,.46, .72,.28, .90,.28, .90,.46]);
+      p.rect(.08,.46,.82,.32);
+      p.line(.08,.62,.90,.62);                       // taş sırası
+      p.line(.49,.46,.49,.62);                       // derz
+      p.line(.29,.62,.29,.78);
+      p.line(.69,.62,.69,.78);
+    },
+    // Hava Savunması — rampa kutusunun içinde füze
+    hava:function(p){
+      p.rect(.14,.30,.72,.50);                       // atış kutusu
+      p.poly([.50,.34, .40,.50, .60,.50, .50,.34]);  // füze başlığı
+      p.rect(.42,.50,.16,.18);                       // füze gövdesi
+      p.line(.42,.62,.33,.74);                       // kanatçık
+      p.line(.58,.62,.67,.74);
+      p.line(.06,.86,.94,.86);                       // taban
+    },
+    // Fabrika — testere dişli çatı, bacadan tüten duman
+    fabrika:function(p){
+      p.poly([.10,.52, .10,.42, .28,.52, .28,.42, .46,.52, .46,.42, .64,.52]);
+      p.rect(.10,.52,.78,.30);
+      p.rect(.70,.20,.13,.32);                       // baca
+      p.arc(.83,.14,.09, Math.PI*0.85, Math.PI*2.15);// duman
+      p.rect(.20,.64,.12,.18);                       // kapı
+    },
+    // Füze Silosu — açılmış kapak, yükselen füze
+    silo:function(p){
+      p.rect(.24,.52,.52,.30);
+      p.line(.18,.52,.36,.40);          // açılan kapak
+      p.line(.82,.52,.64,.40);
+      p.poly([.50,.14, .42,.30, .58,.30, .50,.14]);   // başlık
+      p.rect(.43,.30,.14,.22);          // gövde
+      p.line(.08,.86,.92,.86);
+    },
+    // Kent — pencereli, farklı yükseklikte binalar
+    kent:function(p){
+      p.rect(.08,.48,.24,.34);
+      p.rect(.38,.24,.24,.58);
+      p.rect(.68,.58,.24,.24);
+      p.line(.44,.36,.56,.36);                       // pencere sırası
+      p.line(.44,.48,.56,.48);
+      p.line(.14,.58,.26,.58);
+      p.line(.04,.82,.96,.82);                       // zemin
+    }
+  };
+  /* Savunma yapıları: hem oyuncunun kurdukları hem düşman bölgelerinde
+     hazır bulunanlar. Her biri saldırı tipine göre farklı çarpan uygular. */
+  var DEFENSIVE=["duvar","tufek","hava"];
+
+  /* Saldırı tipleri. İki kaldıraç var:
+       bypass — bu yapının savunma katkısı hiç sayılmaz (karşı-saldırı onu etkisizleştirir)
+       vs     — bu yapı saldırıya direniyorsa savunmayı katlar (daima >= 1)
+     Çarpanlar asla 1'in altına inmez: tahkimat kurmak bir bölgeyi hiçbir saldırı
+     tipine karşı zayıflatmamalı, yalnızca doğru araçla etkisiz kılınabilmeli. */
+  var ATTACKS={
+    piyade:{
+      name:"Piyade Taarruzu", icon:"⚔️", gold:0, requires:null,
+      lootMult:1.0, garrisonMult:1.0, softenMult:0.8,
+      bypass:[], vs:{duvar:1.8, tufek:1.5},
+      desc:"Bedava ama kaba. Duvar ve tüfek mevzisi karşısında ağır bedel ödersin."
+    },
+    bombardiman:{
+      name:"Topçu Barajı", icon:"💣", gold:40, requires:"fabrika",
+      lootMult:0.45, garrisonMult:0.5, softenMult:1.2,
+      bypass:["duvar"], vs:{tufek:1.15}, destroys:"duvar",
+      desc:"Duvarı yerle bir eder — savunmasına hiç sayılmaz. Ama bölgeyi de harap eder: ganimetin yarısı kül olur."
+    },
+    akin:{
+      name:"Hava Akını", icon:"🛩️", gold:60, requires:"fabrika",
+      lootMult:1.0, garrisonMult:0.6, softenMult:1.5,
+      bypass:["duvar","tufek"], vs:{hava:2.4},
+      desc:"Duvarın ve siperin üstünden uçar, ganimete dokunmaz. Hava savunmasına yakalanırsa felaket."
+    }
+  };
+  var ATTACK_KEYS=Object.keys(ATTACKS);
+
+  /* Nükleer saldırılar. Konvansiyonel saldırılardan farklı bir kategoridir:
+     bölge ele geçirmez, sadece yakar. Üçünü ayıran şey patlama alanı —
+     halka sayısı arttıkça daha çok bölgeye ulaşır ama kendi toprağın da
+     alana girebilir. Dağlar patlamayı keser. */
+  var NUKES={
+    taktik:{
+      name:"Taktik Başlık", cost:170, rings:0, power:0.55,
+      desc:"Tek bölgeyi vurur. Cerrahi darbe: sınırdaki sert bir karakolu yumuşatmak için."
+    },
+    stratejik:{
+      name:"Stratejik Başlık", cost:310, rings:1, power:0.70,
+      desc:"Hedefi ve bütün komşularını vurur. Komşulara hasar daha az iner."
+    },
+    termo:{
+      name:"Termonükleer", cost:520, rings:2, power:0.85,
+      desc:"İki halka boyunca yayılır. En yıkıcısı — ama alana giren kendi bölgelerin de yanar."
+    }
+  };
+  var NUKE_KEYS=Object.keys(NUKES);
+  var NUKE_REQUIRES="silo";            // fırlatma silosu olmadan füze atılamaz
+  var RING_FALLOFF=[1, 0.6, 0.35];     // merkezden uzaklaştıkça hasar oranı
+  var SCORCH_TURNS=8;                  // kavrulmuş toprak kaç tur üretimsiz kalır
 
   var RESOURCE_KINDS={
     maden:{raw:"⛏️", built:"⚒️", label:"Maden Bölgesi"},
@@ -35,23 +219,34 @@
   };
   var RESOURCE_KEYS=Object.keys(RESOURCE_KINDS);
 
+  /* Yayılma şansları 81 illik haritaya göre düşürüldü: eski 20 bölgeli haritada
+     boş toprak azdı, burada 20+ boş il var ve botlar eski hızla oynarsa
+     oyuncuya genişleyecek yer bırakmıyorlar. */
   var BOT_DIFF={
-    kolay:{label:"Kolay", basePower:5, growthStep:1, expandChance:0.35, reinforceStep:1},
-    orta:{label:"Orta", basePower:9, growthStep:2, expandChance:0.55, reinforceStep:2},
-    zor:{label:"Zor", basePower:14, growthStep:3, expandChance:0.8, reinforceStep:3}
+    kolay:{label:"Kolay", basePower:5, growthStep:1, expandChance:0.18, reinforceStep:1},
+    orta:{label:"Orta", basePower:9, growthStep:2, expandChance:0.30, reinforceStep:2},
+    zor:{label:"Zor", basePower:14, growthStep:3, expandChance:0.46, reinforceStep:3}
   };
   var BOT_DIFF_KEYS=Object.keys(BOT_DIFF);
   var bots=[];
+  // Skorbord çipleri zorluk seviyesine göre sabit renk taşır: sarımsı=kolay,
+  // mor=orta, kırmızı=zor — hangi cephenin ne kadar tehlikeli olduğu renkten
+  // bile anlaşılsın diye harita paletinden bağımsız, kendi ailesinde tutarlı.
+  var BOT_COLORS={kolay:"#a8863f", orta:"#7a5a94", zor:"#b5432f"};
+  var BOSS_COLOR="#82283a";
 
-  var state={gold:60, army:10, turn:0, gameOver:false, started:false, raidCount:0, lastExpansionBonus:0};
+  var state={gold:60, army:10, maxArmy:60, turn:0, gameOver:false, started:false, raidCount:0, lastExpansionBonus:0};
 
   var pixelRegionId=[];      // [y][x] -> region id or -1
   var landPixelsList=[];     // flat {x,y,regionId,noise,isBorder}
   var regions=[];
+  var ilSirasi=[];           // bölgelerin il karşılıkları (0=İstanbul, 1=düşman başkenti)
   var animating=null;        // {region, flipped:Set}
   var flashRegionId=null;
   var dragHoverRegionId=null;
+  var blastPreview=null;      // nükleer patlama alanı önizlemesi (bölge id listesi)
   var currentSel=null;
+  var lbAnchors={};          // skorbord satırı -> haritada odaklanılacak nokta
 
   var canvas=document.getElementById("map");
   var ctx=canvas.getContext("2d");
@@ -60,6 +255,22 @@
   canvas.width=Math.round(LOGICAL_W*DPR);
   canvas.height=Math.round(LOGICAL_H*DPR);
   ctx.scale(DPR,DPR);
+
+  /* ---- Yerel sefer günlüğü ----
+     Sunucu/hesap yok, o yüzden "çevrimiçi sıralama" gibi bir şey uydurmak
+     yerine bu tarayıcıya özel, gerçek ve kalıcı üç sayaç tutuyoruz. Lobi
+     (lobby.js) bunları okuyup gösteriyor. */
+  function bfStatGet(key){
+    try{ return parseInt(localStorage.getItem("bf_"+key),10) || 0; }
+    catch(e){ return 0; }
+  }
+  function bfStatBump(key, by){
+    try{ localStorage.setItem("bf_"+key, String(bfStatGet(key)+(by||1))); }
+    catch(e){ /* localStorage kapalıysa sessizce yok say */ }
+  }
+  window.__bfStats=function(){
+    return { sefer:bfStatGet("seferSayisi"), fetih:bfStatGet("toplamFetih"), kazanildi:bfStatGet("kazanildi") };
+  };
 
   function randInt(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
   function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
@@ -71,52 +282,114 @@
     var land=[];
     for(var y=0;y<GRID_H;y++){ land.push(new Array(GRID_W).fill(false)); }
 
-    var ellipses=[
-      {cx:GRID_W*0.50, cy:GRID_H*0.50, rx:GRID_W*0.40, ry:GRID_H*0.46},
-      {cx:GRID_W*0.42, cy:GRID_H*0.22, rx:GRID_W*0.30, ry:GRID_H*0.20},
-      {cx:GRID_W*0.58, cy:GRID_H*0.78, rx:GRID_W*0.28, ry:GRID_H*0.18}
-    ];
+    /* Boylam/enlem -> ızgara. Nokta-çokgen testiyle Türkiye'nin silueti basılır,
+       sonra kıyıya hafif gürültü eklenerek piksel-art dokusu verilir. */
+    function lonToX(lon){ return (lon-GEO.lon0)/(GEO.lon1-GEO.lon0)*GRID_W; }
+    function latToY(lat){ return (GEO.lat1-lat)/(GEO.lat1-GEO.lat0)*GRID_H; }
+
+    function toGrid(poly){
+      return poly.map(function(p){ return [lonToX(p[0]), latToY(p[1])]; });
+    }
+    function inPoly(x, y, poly){
+      var inside=false;
+      for(var a=0, b=poly.length-1; a<poly.length; b=a++){
+        var xi=poly[a][0], yi=poly[a][1], xj=poly[b][0], yj=poly[b][1];
+        if(((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
+      }
+      return inside;
+    }
+
+    var parcalar=[toGrid(ANATOLIA), toGrid(THRACE), toGrid(BOSPHORUS)];
+    var goller=LAKES.map(function(l){
+      return {x:lonToX(l.lon), y:latToY(l.lat),
+              rx:l.r/(GEO.lon1-GEO.lon0)*GRID_W, ry:l.r/(GEO.lat1-GEO.lat0)*GRID_H};
+    });
 
     for(var y=0;y<GRID_H;y++){
       for(var x=0;x<GRID_W;x++){
-        var minD=99;
-        for(var e=0;e<ellipses.length;e++){
-          var el=ellipses[e];
-          var nd=Math.sqrt(Math.pow((x-el.cx)/el.rx,2)+Math.pow((y-el.cy)/el.ry,2));
-          if(nd<minD) minD=nd;
+        var px=x+0.5, py=y+0.5, kara=false;
+        for(var pi=0; pi<parcalar.length; pi++){
+          if(inPoly(px, py, parcalar[pi])){ kara=true; break; }
         }
-        if(minD<0.82){ land[y][x]=true; }
-        else if(minD<1.06){
-          var p=1-(minD-0.82)/(1.06-0.82);
-          land[y][x]=Math.random()<p;
+        if(kara){
+          for(var li=0; li<goller.length; li++){
+            var g=goller[li];
+            if(Math.pow((px-g.x)/g.rx,2)+Math.pow((py-g.y)/g.ry,2) < 1){ kara=false; break; }
+          }
         }
+        land[y][x]=kara;
       }
     }
 
-    // keep only the connected landmass containing the grid center
-    var startX=Math.floor(GRID_W/2), startY=Math.floor(GRID_H/2);
-    var visited=[];
-    for(var yy=0;yy<GRID_H;yy++){ visited.push(new Array(GRID_W).fill(false)); }
-    var stack=[[startX,startY]];
-    visited[startY][startX]=true;
-    var mainland=[];
-    while(stack.length){
-      var cur=stack.pop();
-      var cx2=cur[0], cy2=cur[1];
-      if(land[cy2][cx2]) mainland.push([cx2,cy2]);
-      var nb=[[cx2-1,cy2],[cx2+1,cy2],[cx2,cy2-1],[cx2,cy2+1]];
+    // Kıyıya doğal düzensizlik: yalnızca tek hücrelik boşluklar doldurulur,
+    // yoksa dar boğazlar ve göller kapanıp siluet tanınmaz oluyor.
+    var kopya=land.map(function(row){ return row.slice(); });
+    function komsuKara(x,y){
+      var n=0, nb=[[x-1,y],[x+1,y],[x,y-1],[x,y+1]];
       for(var i=0;i<nb.length;i++){
         var nx=nb[i][0], ny=nb[i][1];
         if(nx<0||nx>=GRID_W||ny<0||ny>=GRID_H) continue;
-        if(visited[ny][nx]) continue;
-        if(!land[ny][nx]) continue;
-        visited[ny][nx]=true;
-        stack.push([nx,ny]);
+        if(kopya[ny][nx]) n++;
+      }
+      return n;
+    }
+    for(var y3=0;y3<GRID_H;y3++){
+      for(var x3=0;x3<GRID_W;x3++){
+        var k=komsuKara(x3,y3);
+        if(kopya[y3][x3]){ if(k<=2 && Math.random()<0.30) land[y3][x3]=false; }
+        else if(k>=4 && Math.random()<0.55){ land[y3][x3]=true; }
       }
     }
+
+    /* Maskeleri gürültüden sonra tekrar bas: Marmara ve Van Gölü her hâlükârda
+       deniz, Boğaz köprüsü her hâlükârda kara kalsın (yoksa Trakya kopar ve
+       en-büyük-kütle kuralıyla haritadan silinir). */
+    var denizler=SEA_MASKS.map(toGrid), kopru=toGrid(BOSPHORUS);
+    for(var my=0; my<GRID_H; my++){
+      for(var mx=0; mx<GRID_W; mx++){
+        var qx=mx+0.5, qy=my+0.5;
+        for(var di=0; di<denizler.length; di++){
+          if(inPoly(qx, qy, denizler[di])){ land[my][mx]=false; }
+        }
+        for(var gi=0; gi<goller.length; gi++){
+          var gg=goller[gi];
+          if(Math.pow((qx-gg.x)/gg.rx,2)+Math.pow((qy-gg.y)/gg.ry,2) < 1){ land[my][mx]=false; }
+        }
+        if(inPoly(qx, qy, kopru)){ land[my][mx]=true; }
+      }
+    }
+
+    /* En büyük bağlı kara kütlesini tut. Merkezden başlamak yerine bunu
+       yapıyoruz çünkü ızgara merkezi denize düşebilir ve kopuk adacıklar
+       (kıyı gürültüsünden doğan) haritada ulaşılamaz bölge bırakır. */
+    var etiket=[];
+    for(var yy=0;yy<GRID_H;yy++){ etiket.push(new Array(GRID_W).fill(-1)); }
+    var parcaListesi=[];
+    for(var sy=0; sy<GRID_H; sy++){
+      for(var sx=0; sx<GRID_W; sx++){
+        if(!land[sy][sx] || etiket[sy][sx]!==-1) continue;
+        var id=parcaListesi.length, hucreler=[], stack=[[sx,sy]];
+        etiket[sy][sx]=id;
+        while(stack.length){
+          var cur=stack.pop();
+          hucreler.push(cur);
+          var nb=[[cur[0]-1,cur[1]],[cur[0]+1,cur[1]],[cur[0],cur[1]-1],[cur[0],cur[1]+1]];
+          for(var i=0;i<nb.length;i++){
+            var nx=nb[i][0], ny=nb[i][1];
+            if(nx<0||nx>=GRID_W||ny<0||ny>=GRID_H) continue;
+            if(!land[ny][nx] || etiket[ny][nx]!==-1) continue;
+            etiket[ny][nx]=id;
+            stack.push([nx,ny]);
+          }
+        }
+        parcaListesi.push(hucreler);
+      }
+    }
+    var mainland=[];
+    parcaListesi.forEach(function(p){ if(p.length>mainland.length) mainland=p; });
     for(var y2=0;y2<GRID_H;y2++){
       for(var x2=0;x2<GRID_W;x2++){
-        if(land[y2][x2] && !visited[y2][x2]) land[y2][x2]=false;
+        if(land[y2][x2] && etiket[y2][x2]!==etiket[mainland[0][1]][mainland[0][0]]) land[y2][x2]=false;
       }
     }
 
@@ -130,25 +403,39 @@
       }
       return best;
     }
-    var capSeed=nearestMainland(GRID_W*0.5, GRID_H*0.90);
-    var bossSeed=nearestMainland(GRID_W*0.5, GRID_H*0.08);
-    var seeds=[capSeed, bossSeed];
-
-    var MIN_SPACING=8.5;
-    var tries=0;
-    while(seeds.length<REGION_COUNT && tries<4000){
-      tries++;
-      var pick=mainland[randInt(0,mainland.length-1)];
-      var ok=true;
-      var spacing=tries<2000?MIN_SPACING:MIN_SPACING*0.55;
-      for(var s=0;s<seeds.length;s++){
-        if(dist2(pick[0],pick[1],seeds[s][0],seeds[s][1]) < spacing*spacing){ ok=false; break; }
+    /* Tohumlar il merkezleri. Denize düşen merkez en yakın kara hücresine
+       çekilir; iki il aynı hücreye düşerse ikincisi bir sonraki boş hücreye
+       kaydırılır, yoksa o il piksel alamaz ve haritadan silinir. */
+    var kullanilan={};
+    function serbestKara(tx,ty){
+      var sirali=mainland.slice().sort(function(a,b){
+        return dist2(tx,ty,a[0],a[1]) - dist2(tx,ty,b[0],b[1]);
+      });
+      for(var i=0;i<sirali.length;i++){
+        var k=sirali[i][0]+","+sirali[i][1];
+        if(!kullanilan[k]){ kullanilan[k]=true; return sirali[i]; }
       }
-      if(ok) seeds.push(pick);
+      return mainland[0];
     }
-    while(seeds.length<REGION_COUNT){
-      seeds.push(mainland[randInt(0,mainland.length-1)]);
+
+    // Oyuncu İstanbul'da, düşman başkenti en doğudaki ilde.
+    var sirakli=ILLER.slice();
+    var istIdx=0;
+    var doguIdx=0;
+    for(var q=0;q<sirakli.length;q++){
+      if(sirakli[q][0]==="İstanbul") istIdx=q;
+      if(sirakli[q][2]>sirakli[doguIdx][2]) doguIdx=q;
     }
+    var ist=sirakli.splice(istIdx,1)[0];
+    if(doguIdx>istIdx) doguIdx--;
+    var dogu=sirakli.splice(doguIdx,1)[0];
+    sirakli.unshift(dogu);
+    sirakli.unshift(ist);
+    ilSirasi=sirakli;
+
+    var seeds=sirakli.map(function(il){
+      return serbestKara(lonToX(il[2]), latToY(il[1]));
+    });
 
     // voronoi assignment
     for(var y3=0;y3<GRID_H;y3++){ pixelRegionId.push(new Array(GRID_W).fill(-1)); }
@@ -168,7 +455,8 @@
         id:r, pixels:[], neighbors:new Set(), building:null,
         type: r===0?"capital": (r===1?"enemyCapital":null),
         owner: r===0?"player": (r===1?"enemy":"neutral"),
-        defense: r===1?44:null, garrison:0, wall:false, botId:null, resKind:null, cost:null, goldBonus:null, anchor:{x:seeds[r][0],y:seeds[r][1]}
+        name: (ilSirasi[r]?ilSirasi[r][0]:("Bölge "+r)),
+        defense: r===1?44:null, garrison:0, defenses:[], botId:null, resKind:null, cost:null, goldBonus:null, anchor:{x:seeds[r][0],y:seeds[r][1]}
       });
     }
 
@@ -223,23 +511,25 @@
       var region=regions[r2];
       var rnd=Math.random();
       var gd = dist[r2]===Infinity ? 6 : dist[r2];
-      if(rnd<0.15){
+      if(rnd<0.11){
         region.type="obstacle"; region.owner="neutral";
-      } else if(rnd<0.45){
+      } else if(rnd<0.38){
         region.type="resource"; region.owner="neutral";
         region.resKind = RESOURCE_KEYS[randInt(0,RESOURCE_KEYS.length-1)];
         region.cost = 30 + Math.floor(region.pixels.length/12);
         region.goldBonus = 3 + Math.floor(region.pixels.length/40);
-      } else if(rnd<0.80){
+      } else if(rnd<0.72){
         region.type="enemy"; region.owner="enemy";
-        region.defense = clamp(4 + gd*3 + randInt(0,4), 3, 40);
-        region.wall = Math.random()<0.28;
-        if(region.wall){ region.defense = clamp(region.defense+WALL_DEFENSE_BONUS, 3, 46); }
+        region.defense = clamp(4 + Math.round(gd*2.4) + randInt(0,4), 3, 46);
+        region.defenses = rollDefenses(gd);
       } else {
         region.type="empty"; region.owner="neutral";
         region.cost = 15 + Math.floor(region.pixels.length/15);
       }
     }
+
+    // Düşman başkenti üç savunmayı da barındırır: tek bir saldırı tipiyle düşmez.
+    regions[1].defenses = DEFENSIVE.slice();
 
     // safety: never let capital or boss capital be fully walled in by obstacles
     [0,1].forEach(function(rid){
@@ -299,9 +589,11 @@
     return "empty";
   }
   function categoryForRegion(region){
+    if(isScorched(region)) return "scorched";
     if(region.owner==="player") return "player";
     return categoryForType(region.type);
   }
+  function isScorched(region){ return !!region.scorched && region.scorched>state.turn; }
   function pixelFillStyle(cat,noise,isBorder){
     var b=CATEGORY_COLORS[cat];
     var d=isBorder?24:0;
@@ -318,27 +610,599 @@
     region.neighbors.forEach(function(nid){ if(regions[nid].owner==="enemy") found=true; });
     return found;
   }
-  function effectiveDefense(region){
-    var base=2;
-    if(region.garrison){ base += region.garrison; }
-    if(region.wall){ base += WALL_DEFENSE_BONUS; }
-    if(region.building){ base += BUILDINGS[region.building].def || 0; }
+  /* ---- Savunma yapıları ---- */
+
+  // Derinlere gidildikçe düşman daha iyi tahkim edilmiş olur.
+  function rollDefenses(gd){
+    var out=[];
+    var count = Math.random() < clamp(0.18+gd*0.09, 0.18, 0.72) ? (Math.random()<0.30 ? 2 : 1) : 0;
+    var pool=DEFENSIVE.slice();
+    for(var i=0;i<count && pool.length;i++){
+      out.push(pool.splice(randInt(0,pool.length-1),1)[0]);
+    }
+    return out;
+  }
+
+  // Bir bölgede savunmaya katkı veren tüm yapılar (düşmanınki + oyuncunun kurduğu).
+  function defenseStructures(region){
+    var list=(region.defenses||[]).slice();
+    if(region.building && list.indexOf(region.building)<0) list.push(region.building);
+    return list.filter(function(k){ return DEFENSIVE.indexOf(k)>=0; });
+  }
+  function hasStructure(region, key){ return defenseStructures(region).indexOf(key)>=0; }
+
+  /* ---- Nükleer ---- */
+
+  /* Patlama alanı: hedeften başlayıp halka halka dışa yayılır.
+     Dağlar (obstacle) patlamayı keser — arazi ilk kez saldırıyı şekillendirir. */
+  function blastRegions(center, rings){
+    var seen={}, out=[{region:center, ring:0}], frontier=[center];
+    seen[center.id]=true;
+    for(var r=1; r<=rings; r++){
+      var next=[];
+      frontier.forEach(function(reg){
+        reg.neighbors.forEach(function(nid){
+          if(seen[nid]) return;
+          var nr=regions[nid];
+          seen[nid]=true;
+          if(nr.type==="obstacle") return;      // dağ silsilesi patlamayı durdurur
+          out.push({region:nr, ring:r});
+          next.push(nr);
+        });
+      });
+      frontier=next;
+    }
+    return out;
+  }
+
+  function nukeAvailability(key){
+    var n=NUKES[key];
+    if(!regions.some(function(r){ return r.owner==="player" && r.building===NUKE_REQUIRES; })){
+      return {ok:false, reason:BUILDINGS[NUKE_REQUIRES].name+" kurman gerek"};
+    }
+    if(state.gold<n.cost) return {ok:false, reason:"Yetersiz altın"};
+    return {ok:true, reason:""};
+  }
+
+  /* Nükleer saldırı bölge ele geçirmez; garnizonu eritir, tahkimatı yıkar ve
+     toprağı belirli bir süre üretimsiz bırakır. Kendi bölgen alandaysa o da yanar. */
+  /* Hedefin çevresindeki düşman Hava Savunmaları SAM görevi görür. Yazı-tura
+     değil, belirlenimli: SAM füzeyi önler ve bu işlemde kendisi tükenir.
+     Termonükleer tek bir SAM'i doyurur — onu durdurmak için iki SAM gerekir.
+     Böylece kural bir denemede öğrenilir: önce kalkanı sustur, sonra vur. */
+  function samsInRange(target){
+    var bulunan=[];
+    var bak=function(r){
+      if(r.owner!=="enemy") return;
+      if((r.defenses||[]).indexOf("hava")>=0) bulunan.push({region:r, from:"defenses"});
+      else if(r.building==="hava") bulunan.push({region:r, from:"building"});
+    };
+    bak(target);
+    target.neighbors.forEach(function(nid){ bak(regions[nid]); });
+    return bulunan;
+  }
+
+  // Bu başlığı durdurmak için gereken SAM sayısı
+  function samNeeded(key){ return key==="termo" ? 2 : 1; }
+
+  function launchNuke(target, key){
+    var n=NUKES[key];
+    if(!nukeAvailability(key).ok) return false;
+    state.gold-=n.cost;
+
+    var sams=samsInRange(target);
+    if(sams.length>=samNeeded(key)){
+      // Önleyen SAM kendini harcar: bir sonraki füzen daha kolay geçer.
+      var harcanan=sams[0];
+      if(harcanan.from==="defenses"){
+        harcanan.region.defenses=harcanan.region.defenses.filter(function(k){ return k!=="hava"; });
+      } else {
+        harcanan.region.building=null;
+      }
+      var ic=regionCenter(target);
+      addShake(3);
+      addBurst(ic.x, ic.y-8, 20, ["#63b394","#cfc4a4","#5aa285"], 1.7, 750);
+      addFloater(ic.x, ic.y-14, "ÖNLENDİ", "#63b394");
+      invalidateRoutes();
+      drawMap();
+      showToast("🛡️ Füzen havada vuruldu — Hava Savunması önledi ve bu işte tükendi. "+
+        n.cost+" altın gitti, ama menzilde "+(sams.length-1)+" SAM kaldı.");
+      return true;
+    }
+
+    var hits=blastRegions(target, n.rings);
+    var foeHit=0, ownHit=0, razed=0, troopsLost=0;
+
+    hits.forEach(function(h){
+      var reg=h.region, frac=n.power*(RING_FALLOFF[h.ring]||0.2);
+      if(reg.owner==="enemy"){
+        var before=reg.defense;
+        reg.defense=Math.max(1, Math.round(reg.defense*(1-frac)));
+        if(reg.defense<before) foeHit++;
+      } else if(reg.owner==="player"){
+        var lost=Math.round((reg.garrison||0)*frac);
+        reg.garrison=Math.max(0,(reg.garrison||0)-lost);
+        troopsLost+=lost;
+        ownHit++;
+      }
+      // Merkez her şeyi siler; ilk halkada tahkimat yarı yarıya ayakta kalır.
+      if(h.ring===0 || (h.ring===1 && Math.random()<0.5)){
+        if(reg.defenses && reg.defenses.length){ reg.defenses=[]; razed++; }
+        if(reg.building && DEFENSIVE.indexOf(reg.building)>=0){ reg.building=null; razed++; }
+      }
+      reg.scorched=state.turn+SCORCH_TURNS;
+    });
+
+    flashRegion(target.id);
+    invalidateRoutes();
+    drawMap();
+
+    // Patlama alanı: merkez en şiddetli, dış halkalar giderek sönük.
+    addShake(4 + n.rings*4.5);
+    hits.forEach(function(h){
+      var c=regionCenter(h.region);
+      var f=RING_FALLOFF[h.ring]||0.2;
+      addBurst(c.x, c.y, Math.round(34*f)+8, ["#f0c944","#e0603c","#8d8266","#3a322c"], 2.4*f+0.7, 1100);
+    });
+    var tc=regionCenter(target);
+    addFloater(tc.x, tc.y-10, "☢ "+hits.length+" bölge", "#f0c944");
+
+    showToast("☢️ "+n.name+" · "+hits.length+" bölge vuruldu"+
+      (razed>0?" · "+razed+" tahkimat yıkıldı":"")+
+      (ownHit>0?" · ⚠️ kendi "+ownHit+" bölgen de yandı ("+troopsLost+" asker)":"")+
+      " · toprak "+SCORCH_TURNS+" tur üretimsiz.");
+    return true;
+  }
+
+  // Tahkimat yalnızca sınırına dayandığın bölgede görünür: genişleme sırası da bir karar.
+  function isScouted(region){
+    var seen=false;
+    region.neighbors.forEach(function(nid){ if(regions[nid].owner==="player") seen=true; });
+    return seen;
+  }
+
+  // Bölgenin ham asker gücü — tahkimat katkısı hariç. Başarısız saldırılar bunu aşındırır.
+  function troopStrength(region){
+    if(region.owner==="enemy") return region.defense;
+    return 2+(region.garrison||0);
+  }
+
+  /* Savaşın tek matematik kaynağı: önizleme, saldırı çözümü ve bot kararları
+     hepsi buradan geçer, böylece gösterilen sonuç ile olan sonuç ayrışamaz. */
+  /* Cephe analizi: bir bölgeye kaç yönden dayandığın ve çevresinin ne kadar
+     dağlık olduğu. Savaşın sonucunu yalnızca asker sayısı değil, KONUM da
+     belirlesin diye. Aynı orduyla tek cepheden saldırmak ile üç cepheden
+     kuşatmak arasında ciddi fark olmalı. */
+  function cepheAnalizi(region, saldiran){
+    var cephe=0, gecilirKomsu=0, dag=0;
     region.neighbors.forEach(function(nid){
       var n=regions[nid];
-      if(n.owner==="player" && n.building==="topcu"){ base += BUILDINGS.topcu.splash; }
+      if(n.type==="obstacle"){ dag++; return; }   // dağ: yaklaşma yolu değil
+      gecilirKomsu++;
+      if(n.owner===saldiran) cephe++;
     });
+
+    /* Kuşatma: tek cepheden saldırı normal. İkinci cephe savunmayı böler,
+       üçüncüsü çember daraltır. Tavan var — kuşatma tek başına savaş kazanmasın. */
+    var kusatma = cephe<=1 ? 1 : (cephe===2 ? 0.82 : (cephe===3 ? 0.68 : 0.58));
+
+    /* Arazi: çevresi dağlarla çevrili bölgeye yaklaşma yolu azdır, savunan
+       dar geçidi tutar. Doğu illeri bu yüzden gerçekten zor olur. */
+    var arazi = 1 + Math.min(0.30, dag*0.10);
+
+    return {cephe:cephe, gecilirKomsu:gecilirKomsu, dag:dag, kusatma:kusatma, arazi:arazi};
+  }
+
+  function defenseAgainst(region, attackKey, saldiran){
+    var atk=ATTACKS[attackKey];
+    saldiran = saldiran || (region.owner==="enemy" ? "player" : "enemy");
+    var base=troopStrength(region), mult=1, notes=[], bypassed=[];
+    defenseStructures(region).forEach(function(k){
+      if(atk.bypass.indexOf(k)>=0){ bypassed.push(k); return; }  // katkısı hiç sayılmaz
+      base += BUILDINGS[k].def || 0;
+      var m=atk.vs[k];
+      if(m && m>1){ mult*=m; notes.push({key:k, mult:m}); }
+    });
+
+    var cep=cepheAnalizi(region, saldiran);
+    var toplam = mult * cep.kusatma * cep.arazi;
+
+    return {
+      base:base, mult:mult, notes:notes, bypassed:bypassed, cephe:cep,
+      value:Math.max(1, Math.round(base*toplam))
+    };
+  }
+
+  // Haritadaki rozet için: hiçbir yapının aşılmadığı varsayımıyla kaba savunma.
+  function effectiveDefense(region){
+    var base=troopStrength(region);
+    defenseStructures(region).forEach(function(k){ base += BUILDINGS[k].def || 0; });
     return base;
   }
 
+  // Bu saldırı tipi şu an kullanılabilir mi? (gerekli bina + altın)
+  function attackAvailability(attackKey){
+    var atk=ATTACKS[attackKey];
+    if(atk.requires && !regions.some(function(r){ return r.owner==="player" && r.building===atk.requires; })){
+      return {ok:false, reason:BUILDINGS[atk.requires].name+" kurman gerek"};
+    }
+    if(state.gold<atk.gold) return {ok:false, reason:"Yetersiz altın ("+atk.gold+"💰)"};
+    return {ok:true, reason:""};
+  }
+
   /* ================= Render ================= */
-  function drawMap(){
-    ctx.fillStyle=SEA_FILL;
-    ctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
+  /* ================= Bina / tahkimat işaretleri ================= */
+
+  // Birim kareyi (0..1) piksele çeviren küçük çizim kalemi.
+  function symbolPen(g, x0, y0, size, lw){
+    function X(u){ return x0+u*size; }
+    function Y(v){ return y0+v*size; }
+    g.lineWidth=lw; g.lineCap="round"; g.lineJoin="round";
+    return {
+      line:function(a,b,c,d){ g.beginPath(); g.moveTo(X(a),Y(b)); g.lineTo(X(c),Y(d)); g.stroke(); },
+      rect:function(a,b,w,h){ g.beginPath(); g.rect(X(a),Y(b),w*size,h*size); g.stroke(); },
+      poly:function(pts){
+        g.beginPath();
+        for(var i=0;i<pts.length;i+=2){
+          if(i) g.lineTo(X(pts[i]),Y(pts[i+1])); else g.moveTo(X(pts[0]),Y(pts[1]));
+        }
+        g.stroke();
+      },
+      arc:function(a,b,r,s,e){ g.beginPath(); g.arc(X(a),Y(b),r*size,s,e); g.stroke(); },
+      dot:function(a,b,r){ g.beginPath(); g.arc(X(a),Y(b),r*size,0,Math.PI*2); g.fill(); }
+    };
+  }
+
+  /* ---- Sayaç (counter) çizimi ----
+     Referans düzen: açık zeminli kare karo + üstüne binen koyu sayı rozeti.
+     Asker ikonu yok; bölgenin gücünü sayı, tahkimatını karolar anlatır. */
+  var TILE=13;                       // haritadaki karo kenarı (mantıksal px)
+  var BADGE_H=11;
+  var TILE_FILL="#c7d3e2", TILE_FILL_FOE="#e2c4c8";
+  var TILE_EDGE="#0b1215";
+  var TILE_INK="#182636",  TILE_INK_FOE="#3c1922";
+  var BADGE_BG="#0b1215",  BADGE_TX="#f4efe0";
+  // Çubuk her iki tarafta da amber: "güç" tek bir dilde okunsun, taraf
+  // rengiyle karışmasın. Zemin koyu olduğu için amber her yerde okunur kalır.
+  var BAR_OWN="#e3b23c",   BAR_FOE="#d4834a";
+
+  // Sembolün yalnızca çizgilerini basar; zemini karo sağlar.
+  function paintSymbol(g, key, x0, y0, size, ink){
+    var fn=SYMBOLS[key];
+    if(!fn) return;
+    g.strokeStyle=ink; g.fillStyle=ink;
+    fn(symbolPen(g, x0, y0, size, Math.max(1, size*0.09)));
+  }
+
+  function drawTile(g, x, y, key, size, foe){
+    g.fillStyle = foe ? TILE_FILL_FOE : TILE_FILL;
+    g.fillRect(x, y, size, size);
+    g.strokeStyle=TILE_EDGE; g.lineWidth=1;
+    g.strokeRect(x+0.5, y+0.5, size-1, size-1);
+    var inset=size*0.10;
+    paintSymbol(g, key, x+inset, y+inset, size-inset*2, foe ? TILE_INK_FOE : TILE_INK);
+  }
+
+  // Koyu sayı rozeti — referanstaki gibi karonun sol üst köşesine biner.
+  function drawBadge(g, x, y, txt){
+    g.font="bold 9px ui-monospace, monospace";
+    g.textAlign="left"; g.textBaseline="middle";
+    var w=Math.ceil(g.measureText(txt).width)+7;
+    g.fillStyle=BADGE_BG;
+    g.fillRect(x, y, w, BADGE_H);
+    g.strokeStyle="rgba(0,0,0,0.85)"; g.lineWidth=1;
+    g.strokeRect(x+0.5, y+0.5, w-1, BADGE_H-1);
+    g.fillStyle=BADGE_TX;
+    g.fillText(txt, x+3.5, y+BADGE_H/2+0.5);
+    g.textAlign="center"; g.textBaseline="middle";
+    return w;
+  }
+
+  /* Bir bölgenin sayacı: tahkimat karoları yan yana, sayı rozeti sol üste biner.
+     Tahkimat yoksa yalnızca rozet çizilir — "sadece sayı" hâli. */
+  /* Sayacın altındaki güç çubuğu — referanstaki gibi. Sayıyı okumadan
+     "bu cephe ne kadar sert" bilgisini verir; oran haritadaki en güçlü
+     garnizona göre, yani ölçek oyun ilerledikçe kendini ayarlar. */
+  function drawBar(g, x, y, w, ratio, foe){
+    var h=3;
+    g.fillStyle=BADGE_BG;
+    g.fillRect(x-1, y-1, w+2, h+2);
+    g.fillStyle = foe ? BAR_FOE : BAR_OWN;
+    g.fillRect(x, y, Math.max(1, Math.round(w*clamp(ratio,0,1))), h);
+  }
+
+  function drawCounter(g, cx, cy, structs, num, foe, ratio, showNum){
+    var n=structs.length;
+    var totalW = n ? n*TILE + (n-1)*2 : TILE;
+    var x0=Math.round(cx-totalW/2), y0=Math.round(cy-TILE/2);
+    for(var i=0;i<n;i++){ drawTile(g, x0+i*(TILE+2), y0, structs[i], TILE, foe); }
+    if(ratio!==null && ratio!==undefined){
+      drawBar(g, x0, y0+TILE+3, totalW, ratio, foe);
+    }
+    // Sayı rozeti artık her karoda değil, yalnızca o an seçili/incelenen
+    // bölgede basılır — haritanın geri kalanı sayıyı değil gücü (çubuk +
+    // tahkimat karoları) gösterir. Kesin rakamı isteyen dokunur.
+    if(showNum && num!==null && num!==undefined){
+      if(n) drawBadge(g, x0-4, y0-BADGE_H+4, String(num));
+      else  drawBadge(g, Math.round(cx-9), Math.round(cy-BADGE_H/2), String(num));
+    }
+  }
+
+  var symbolUrlCache={};
+  function symbolDataURL(key, px, foe){
+    var id=key+"@"+px+"@"+(foe?"f":"p");
+    if(symbolUrlCache[id]) return symbolUrlCache[id];
+    var cv=document.createElement("canvas");
+    var scale=2;
+    cv.width=cv.height=px*scale;
+    var g=cv.getContext("2d");
+    g.scale(scale,scale);
+    drawTile(g, 0.5, 0.5, key, px-1, foe);
+    symbolUrlCache[id]=cv.toDataURL();
+    return symbolUrlCache[id];
+  }
+
+  function symbolImg(key, cls, foe){
+    return "<img class='"+cls+"' alt='' src='"+symbolDataURL(key,40,foe)+"'>";
+  }
+
+  /* ================= Efektler =================
+     Arazi ayrı bir tuvalde tutulur. Efekt karelerinde binlerce piksel yeniden
+     çizilmez, hazır görüntü kopyalanır — parçacıklar 60 fps akabilsin diye. */
+  var terrainCv=document.createElement("canvas");
+  terrainCv.width=canvas.width; terrainCv.height=canvas.height;
+  var tctx=terrainCv.getContext("2d");
+  tctx.scale(DPR,DPR);
+
+  var REDUCED = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var particles=[], floaters=[], shakeMag=0, fxRunning=false, lastFX=0;
+
+  function addShake(mag){
+    if(REDUCED) return;
+    shakeMag=Math.max(shakeMag, mag);
+    startFX();
+  }
+
+  var MAX_PARTICLES=420;      // sekme sırasında birikmesin diye tavan
+
+  function addBurst(cx, cy, count, colors, speed, life){
+    if(REDUCED) return;
+    if(particles.length>MAX_PARTICLES) particles.splice(0, particles.length-MAX_PARTICLES);
+    for(var i=0;i<count;i++){
+      var a=Math.random()*Math.PI*2, s=speed*(0.35+Math.random()*0.65);
+      particles.push({
+        x:cx, y:cy, vx:Math.cos(a)*s, vy:Math.sin(a)*s-speed*0.3,
+        life:life*(0.6+Math.random()*0.7), age:0,
+        color:colors[randInt(0,colors.length-1)],
+        size:Math.random()<0.28?2:1
+      });
+    }
+    startFX();
+  }
+
+  function addFloater(cx, cy, text, color){
+    floaters.push({x:cx, y:cy, text:text, color:color, age:0, life:1200});
+    startFX();
+  }
+
+  function startFX(){
+    if(fxRunning) return;
+    fxRunning=true; lastFX=0;
+    requestAnimationFrame(fxTick);
+  }
+
+  function fxTick(now){
+    var dt = lastFX ? Math.min(50, now-lastFX) : 16;
+    lastFX=now;
+    var step=dt/16;
+    for(var i=particles.length-1;i>=0;i--){
+      var p=particles[i];
+      p.age+=dt;
+      if(p.age>=p.life){ particles.splice(i,1); continue; }
+      p.x+=p.vx*step; p.y+=p.vy*step;
+      p.vy+=0.17*step;          // yerçekimi
+      p.vx*=0.985;
+    }
+    for(var j=floaters.length-1;j>=0;j--){
+      var f=floaters[j];
+      f.age+=dt;
+      if(f.age>=f.life){ floaters.splice(j,1); continue; }
+      f.y-=0.032*dt;
+    }
+    stepWorkers(dt);
+    shakeMag = shakeMag>0.06 ? shakeMag*Math.pow(0.87, step) : 0;
+    applyTransform();
+    composite();
+    if(particles.length || floaters.length || shakeMag>0 || workers.length){
+      requestAnimationFrame(fxTick);
+    } else {
+      fxRunning=false; lastFX=0; applyTransform();
+    }
+  }
+
+  /* Görünüm: 81 il küçük olduğu için harita yakınlaştırılıp kaydırılabilir.
+     Dönüşüm CSS transform ile yapılır — böylece regionAtPoint hesabı bozulmaz,
+     çünkü getBoundingClientRect dönüşmüş kutuyu verir. */
+  var view={scale:1, tx:0, ty:0};
+  // MIN_SCALE artık sabit 1 değil: harita "ana kahraman" olsun ve dikey
+  // telefonda bile kutuyu doldursun diye fitMapToScreen() bunu her seferinde
+  // "haritanın kendi oranıyla bu sarmalayıcıyı tam kaplamak için gereken
+  // asgari yakınlaşma" olacak şekilde yeniden hesaplıyor. Tek dönüşüm katmanı
+  // (view.scale/tx/ty) korunduğu için regionAtPoint()'in düz-orantı hesabı
+  // hep doğru kalır — CSS object-fit gibi ikinci, bağımsız bir ölçek katmanı
+  // yok, dolayısıyla clampView() ile çakışma da yok.
+  var MIN_SCALE=1, MAX_SCALE=14;
+  var mapWrap=document.getElementById("map-wrap");
+
+  // mapWrap'in dolgusunu (padding) çıkarınca kalan gerçek içerik kutusu —
+  // canvas tam bunun içine oturuyor. getBoundingClientRect() dolguyu da
+  // sayar; bunu kullanmak clampView'ı ~16px yanlış hesaplatıp dikeyde kayma
+  // payını sıfıra düşürebiliyordu (ty her seferinde 0'a kelepçeleniyordu).
+  function wrapContentBox(){
+    var cs=getComputedStyle(mapWrap);
+    var padX=parseFloat(cs.paddingLeft)+parseFloat(cs.paddingRight);
+    var padY=parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom);
+    return {w:Math.max(0,mapWrap.clientWidth-padX), h:Math.max(0,mapWrap.clientHeight-padY)};
+  }
+
+  function clampView(){
+    view.scale=clamp(view.scale, MIN_SCALE, MAX_SCALE);
+    var box=wrapContentBox();
+    var sw=canvas.offsetWidth*view.scale, sh=canvas.offsetHeight*view.scale;
+    var maxX=Math.max(0,(sw-box.w)/2), maxY=Math.max(0,(sh-box.h)/2);
+    view.tx=clamp(view.tx,-maxX,maxX);
+    view.ty=clamp(view.ty,-maxY,maxY);
+  }
+
+  // Sarmalayıcı (mapWrap) haritanın 140:80 oranından daha dikeyse, canvas
+  // (width:100%;height:auto olduğu için) doğal halinde kutunun tamamını
+  // dolduramaz — üstte/altta boşluk kalır. Bu fonksiyon o boşluğu kapatacak
+  // asgari view.scale değerini hesaplar; MAX_SCALE'i aşmaz, yatay/kısa
+  // ekranlarda (harita zaten genişliği dolduruyorsa) 1'in altına inmez.
+  function fitMapToScreen(){
+    if(!canvas.offsetWidth || !canvas.offsetHeight) return;
+    var box=wrapContentBox();
+    if(!box.w || !box.h) return;
+    var need = clamp(box.h/canvas.offsetHeight, 1, MAX_SCALE);
+    MIN_SCALE = need;
+    if(view.scale<MIN_SCALE) view.scale=MIN_SCALE;
+    clampView();
+    applyTransform();
+  }
+  window.addEventListener("resize", fitMapToScreen);
+
+  function applyTransform(){
+    var dx=0, dy=0;
+    if(shakeMag>0){ dx=(Math.random()*2-1)*shakeMag; dy=(Math.random()*2-1)*shakeMag; }
+    canvas.style.transform="translate("+(view.tx+dx).toFixed(2)+"px,"+(view.ty+dy).toFixed(2)+"px) scale("+view.scale.toFixed(3)+")";
+  }
+
+  function zoomAt(faktor, cx, cy){
+    var wrap=mapWrap.getBoundingClientRect();
+    var mx=cx-(wrap.left+wrap.width/2)-view.tx;
+    var my=cy-(wrap.top+wrap.height/2)-view.ty;
+    var onceki=view.scale;
+    view.scale=clamp(view.scale*faktor, MIN_SCALE, MAX_SCALE);
+    var oran=view.scale/onceki;
+    view.tx-=mx*(oran-1);
+    view.ty-=my*(oran-1);
+    clampView();
+    applyTransform();
+  }
+
+  /* Skorbord satırına dokununca kullanılır: haritayı verilen ızgara noktasının
+     (anchor) ortasına kaydırır ve biraz yakınlaştırır — çipe her dokunuşta o
+     gücün toprağı ekranın tam ortasına gelir, aramak gerekmez. */
+  function centerOnAnchor(anchor){
+    if(!anchor || !canvas.offsetWidth || !canvas.offsetHeight) return;
+    var c=regionCenter({anchor:anchor});
+    var cssW=canvas.offsetWidth, cssH=canvas.offsetHeight;
+    var ox=(c.x/LOGICAL_W)*cssW - cssW/2;
+    var oy=(c.y/LOGICAL_H)*cssH - cssH/2;
+    // clampView, mevcut ölçekte kutunun dışına taşan boşluk göstermez — yani
+    // MIN_SCALE'in hemen üstünde kayma payı neredeyse sıfırdır. Hedefi
+    // gerçekten ortalayabilmek için, o nokta merkezden ne kadar uzaktaysa
+    // (kutunun kenarına ne kadar yakınsa) o kadar fazla yakınlaşmak gerekir;
+    // bunu sabit bir çarpanla tahmin etmek yerine gereken ölçeği doğrudan
+    // hesaplıyoruz (kayma payı = hedefe yetecek kadar).
+    var box=wrapContentBox();
+    var needX = (2*Math.abs(ox) < cssW) ? box.w/(cssW-2*Math.abs(ox)) : MAX_SCALE;
+    var needY = (2*Math.abs(oy) < cssH) ? box.h/(cssH-2*Math.abs(oy)) : MAX_SCALE;
+    var targetScale=clamp(Math.max(view.scale, MIN_SCALE, needX, needY, 2.2), MIN_SCALE, MAX_SCALE);
+    view.scale=targetScale;
+    view.tx=-ox*targetScale;
+    view.ty=-oy*targetScale;
+    clampView();
+    applyTransform();
+  }
+
+  /* ---- İşçi konvoyları ----
+     Fabrikaların ile kentlerin arasında gidip gelen işçiler. Tamamen görsel
+     ama uydurma değil: yalnızca gerçekten sahip olduğun binalar arasında
+     işler ve kavrulmuş (nükleer vurulmuş) bölgeye giden hat durur. */
+  var workers=[], workerRoutes=[], routesDirty=true;
+  var WORKER_SPEED=0.030;          // birim yol / ms
+
+  function invalidateRoutes(){ routesDirty=true; startFX(); }
+
+  function rebuildRoutes(){
+    routesDirty=false;
+    workerRoutes=[];
+    workers=[];
+    var fabrikalar=[], kentler=[];
+    regions.forEach(function(r){
+      if(r.owner!=="player" || isScorched(r)) return;
+      if(r.building==="fabrika") fabrikalar.push(r);
+      else if(r.building==="kent") kentler.push(r);
+    });
+    if(!fabrikalar.length || !kentler.length) return;
+
+    // Her fabrika en yakın kente bağlanır — konvoy sayısı kontrollü kalsın.
+    fabrikalar.forEach(function(f){
+      var a=regionCenter(f), en=null, enD=Infinity;
+      kentler.forEach(function(k){
+        var b=regionCenter(k);
+        var dd=dist2(a.x,a.y,b.x,b.y);
+        if(dd<enD){ enD=dd; en=b; }
+      });
+      if(!en) return;
+      workerRoutes.push({ax:a.x, ay:a.y, bx:en.x, by:en.y});
+    });
+
+    // Hat başına iki işçi, zıt yönlerde: yol hep canlı görünür.
+    workerRoutes.forEach(function(rt, ri){
+      workers.push({route:ri, t:Math.random(), dir:1});
+      workers.push({route:ri, t:Math.random(), dir:-1});
+    });
+    if(workers.length) startFX();
+  }
+
+  function stepWorkers(dt){
+    if(routesDirty) rebuildRoutes();
+    for(var i=0;i<workers.length;i++){
+      var w=workers[i];
+      w.t += w.dir*WORKER_SPEED*dt/16;
+      if(w.t>1){ w.t=1; w.dir=-1; }
+      else if(w.t<0){ w.t=0; w.dir=1; }
+    }
+  }
+
+  function paintWorkers(){
+    if(!workerRoutes.length) return;
+    // Yol izi: soluk bir hat, üstünde hareket eden işçi noktaları.
+    ctx.strokeStyle="rgba(240,201,68,0.22)";
+    ctx.lineWidth=1;
+    for(var r=0;r<workerRoutes.length;r++){
+      var rt=workerRoutes[r];
+      ctx.beginPath();
+      ctx.moveTo(rt.ax, rt.ay);
+      ctx.lineTo(rt.bx, rt.by);
+      ctx.stroke();
+    }
+    for(var i=0;i<workers.length;i++){
+      var w=workers[i], rt2=workerRoutes[w.route];
+      if(!rt2) continue;
+      var x=rt2.ax+(rt2.bx-rt2.ax)*w.t, y=rt2.ay+(rt2.by-rt2.ay)*w.t;
+      ctx.fillStyle="#0b1215";
+      ctx.fillRect(Math.round(x)-1, Math.round(y)-1, 4, 4);
+      ctx.fillStyle = w.dir>0 ? "#f0c944" : "#cfc4a4";   // dolu giden / boş dönen
+      ctx.fillRect(Math.round(x), Math.round(y), 2, 2);
+    }
+  }
+
+  // Bölgenin harita üzerindeki merkezi (efektleri doğru yere koymak için)
+  function regionCenter(reg){
+    return {x:reg.anchor.x*CELL+CELL/2, y:reg.anchor.y*CELL+CELL/2};
+  }
+
+  function paintTerrain(){
+    tctx.fillStyle=SEA_FILL;
+    tctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
     for(var i=0;i<landPixelsList.length;i++){
       var p=landPixelsList[i];
       var region=regions[p.regionId];
       var cat;
-      var wallRing=false, hoverRing=false;
+      var wallRing=false, hoverRing=false, selRing=false;
       if(animating && p.regionId===animating.region.id){
         var key=p.y*GRID_W+p.x;
         cat = animating.flipped.has(key) ? "player" : categoryForType(region.type);
@@ -346,13 +1210,54 @@
         cat="flashHit";
       } else {
         cat=categoryForRegion(region);
+        if(blastPreview && blastPreview.indexOf(p.regionId)>=0) cat="flashHit";
         if(p.isBorder){
-          if(p.regionId===dragHoverRegionId) hoverRing=true;
-          else if(region.wall || region.building==="duvar") wallRing=true;
+          // Seçim halkası her şeyin önünde gelir: "şu an incelediğin bölge
+          // bu" bilgisi, duvar/hover tonlarından daha güçlü okunmalı.
+          if(currentSel && p.regionId===currentSel.id) selRing=true;
+          else if(p.regionId===dragHoverRegionId) hoverRing=true;
+          else if(hasStructure(region,"duvar")) wallRing=true;
         }
       }
-      ctx.fillStyle = hoverRing ? pixelFillStyle("hover", p.noise, false) : (wallRing ? pixelFillStyle("wall", p.noise, false) : pixelFillStyle(cat,p.noise,p.isBorder));
-      ctx.fillRect(p.x*CELL, p.y*CELL, CELL, CELL);
+      tctx.fillStyle = selRing ? pixelFillStyle("selected", p.noise, false)
+        : hoverRing ? pixelFillStyle("hover", p.noise, false)
+        : (wallRing ? pixelFillStyle("wall", p.noise, false) : pixelFillStyle(cat,p.noise,p.isBorder));
+      tctx.fillRect(p.x*CELL, p.y*CELL, CELL, CELL);
+    }
+
+  }
+
+  function paintEffects(){
+    paintWorkers();
+    for(var i=0;i<particles.length;i++){
+      var p=particles[i];
+      var k=1-p.age/p.life;
+      ctx.globalAlpha=Math.max(0, Math.min(1, k*1.4));
+      ctx.fillStyle=p.color;
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+    }
+    ctx.globalAlpha=1;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    for(var j=0;j<floaters.length;j++){
+      var f=floaters[j];
+      var t=f.age/f.life;
+      ctx.globalAlpha = t<0.15 ? t/0.15 : Math.max(0, 1-(t-0.15)/0.85);
+      ctx.font="bold 12px ui-monospace, monospace";
+      ctx.lineWidth=3; ctx.strokeStyle="rgba(6,10,12,0.85)";
+      ctx.strokeText(f.text, f.x, f.y);
+      ctx.fillStyle=f.color;
+      ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.globalAlpha=1;
+  }
+
+  function paintOverlay(){    // Güç çubuklarının ölçeği: haritadaki en güçlü savunma 1.0 kabul edilir.
+    var peak=1;
+    for(var pi=0; pi<regions.length; pi++){
+      var pr=regions[pi];
+      if(!pr.pixels.length) continue;
+      var pv = pr.owner==="enemy" ? pr.defense : (pr.owner==="player" ? effectiveDefense(pr) : 0);
+      if(pv>peak) peak=pv;
     }
 
     ctx.textAlign="center"; ctx.textBaseline="middle";
@@ -365,16 +1270,19 @@
         ctx.fillText("⛰️", cx, cy);
         continue;
       }
-      var mainIcon="";
-      if(reg.type==="capital") mainIcon="🏰";
-      else if(reg.type==="enemyCapital") mainIcon = reg.owner==="player" ? "🏰" : "👑";
-      else if(reg.type==="enemy") mainIcon = reg.owner==="player" ? "🚩" : "🪖";
-      else if(reg.type==="resource") mainIcon = reg.owner==="player" ? RESOURCE_KINDS[reg.resKind].built : RESOURCE_KINDS[reg.resKind].raw;
-      else mainIcon = reg.owner==="player" ? "🚩" : "";
-      if(mainIcon){
-        ctx.font=Math.floor(CELL*1.8)+"px sans-serif";
-        ctx.fillText(mainIcon, cx, cy);
-      }
+      /* Bölge işareti — referans düzen: tahkimat karoları + üstüne binen sayı rozeti.
+         Asker/bayrak ikonu yok; sahiplik zaten bölge renginden okunuyor. Yalnızca
+         renkle anlaşılmayan şeyler (başkent, kaynak türü) ikon olarak kalır. */
+      var landmark="";
+      if(reg.type==="capital") landmark="🏰";
+      else if(reg.type==="enemyCapital") landmark = reg.owner==="player" ? "🏰" : "👑";
+      else if(reg.type==="resource") landmark = reg.owner==="player" ? RESOURCE_KINDS[reg.resKind].built : RESOURCE_KINDS[reg.resKind].raw;
+
+      // Haritada gösterilecek tahkimat: düşmanınki ancak keşfedilmişse görünür.
+      var shown=[];
+      if(reg.owner==="enemy"){ if(isScouted(reg)) shown=reg.defenses.slice(); }
+      else if(reg.owner==="player"){ shown=defenseStructures(reg); }
+
       var badgeNum=null;
       if((reg.type==="enemy"||reg.type==="enemyCapital") && reg.owner==="enemy"){
         badgeNum=reg.defense;
@@ -382,24 +1290,158 @@
         var ed=effectiveDefense(reg);
         if(ed>2) badgeNum=ed;
       }
-      if(badgeNum!==null){
-        var txt=String(badgeNum);
-        ctx.font="bold "+Math.max(8,Math.floor(CELL*1.05))+"px ui-monospace, monospace";
-        var tw=ctx.measureText(txt).width;
-        ctx.fillStyle="rgba(0,0,0,0.55)";
-        ctx.fillRect(cx-tw/2-3, cy+CELL*1.05-6, tw+6, 12);
-        ctx.fillStyle="#f2ede0";
-        ctx.fillText(txt, cx, cy+CELL*1.05);
+
+      // Başkent / kaynak simgesi sayacın üstünde durur.
+      if(landmark){
+        ctx.font=Math.floor(CELL*1.7)+"px sans-serif";
+        ctx.fillText(landmark, cx, cy-(shown.length||badgeNum!==null ? CELL*1.9 : 0));
+      }
+      if(shown.length || badgeNum!==null){
+        var ratio = badgeNum!==null ? badgeNum/peak : null;
+        var showNum = !!(currentSel && currentSel.id===reg.id);
+        drawCounter(ctx, cx, cy, shown, badgeNum, reg.owner==="enemy", ratio, showNum);
       }
     }
 
-    document.getElementById("gold-val").textContent=state.gold;
-    document.getElementById("army-val").textContent=state.army;
-    document.getElementById("turn-val").textContent=state.turn;
+    paintEffects();
   }
+
+  // Hazır araziyi kopyalar, üstüne sayaçları ve efektleri çizer.
+  function composite(){
+    ctx.clearRect(0,0,LOGICAL_W,LOGICAL_H);
+    ctx.drawImage(terrainCv, 0, 0, LOGICAL_W, LOGICAL_H);
+    paintOverlay();
+  }
+
+  // Salt sunum katmanı: tur sayacını gerçek bir takvim hissi versin diye
+  // yıl/çeyreğe çeviriyoruz. Tur mekanizmasının kendisi (state.turn) hiç
+  // değişmiyor — bu yalnızca aynı sayının okunuş biçimi.
+  function zamanEtiketi(turn){
+    var ceyrekIdx=Math.floor(turn/3);
+    var yil=2026+Math.floor(ceyrekIdx/4);
+    var ceyrek=(ceyrekIdx%4)+1;
+    return "YIL "+yil+" · Ç"+ceyrek;
+  }
+
+  function drawMap(){
+    paintTerrain();
+    composite();
+    document.getElementById("gold-val").textContent=state.gold;
+    document.getElementById("army-val").textContent=state.army+"/"+state.maxArmy;
+    document.getElementById("turn-val").textContent=zamanEtiketi(state.turn);
+    renderScoreboard();
+    updateControlBar();
+    }
+
+  // Alt yüzen çubuk: kaç bölgenin sende olduğu, gerçek bir yüzde olarak.
+  function updateControlBar(){
+    var fill=document.getElementById("control-fill");
+    var val=document.getElementById("control-val");
+    if(!fill || !val || !regions.length) return;
+    var owned=0;
+    regions.forEach(function(r){ if(r.owner==="player") owned++; });
+    var pct=Math.round(owned/regions.length*100);
+    fill.style.width=pct+"%";
+    val.textContent=pct+"%";
+  }
+
+  /* ================= Skorbord ================= */
+  /* Üstteki şerit: sen, düşman başkumandanlığı ve her bot kaç il tutuyor,
+     gücü ne — openfront.io tarzı oyunlardaki "leaderboard"un kısa özeti.
+     Bir satıra dokunmak haritayı o gücün topraklarının ortasına kaydırır. */
+  function scoreboardRows(){
+    var rows=[];
+    var playerCount=0;
+    regions.forEach(function(r){ if(r.owner==="player") playerCount++; });
+    rows.push({
+      key:"player", name:"Sen", color:"var(--player)", you:true,
+      bolge:playerCount, guc:state.army, altin:state.gold, altinBilinir:true,
+      anchor: regions[0] ? regions[0].anchor : null
+    });
+    if(regions[1] && regions[1].owner==="enemy"){
+      rows.push({
+        key:"boss", name:regions[1].name+" 👑", color:BOSS_COLOR,
+        bolge:1, guc:regions[1].defense||44, altin:null, altinBilinir:false,
+        anchor: regions[1].anchor
+      });
+    }
+    bots.forEach(function(bot){
+      var owned=regions.filter(function(r){ return r.botId===bot.id && r.owner==="enemy"; });
+      if(!owned.length) return;
+      var sx=0, sy=0;
+      owned.forEach(function(r){ sx+=r.anchor.x; sy+=r.anchor.y; });
+      rows.push({
+        key:"bot"+bot.id, name:BOT_DIFF[bot.difficulty].label+" Cephesi", color:BOT_COLORS[bot.difficulty],
+        bolge:owned.length, guc:bot.power, altin:null, altinBilinir:false,
+        anchor:{x:sx/owned.length, y:sy/owned.length}
+      });
+    });
+    // Sıralama il sayısına göre — hangi gücün haritada en geniş yeri
+    // tuttuğu, yani asıl tehdit kim, en üstte çıksın.
+    rows.sort(function(a,b){
+      if(b.bolge!==a.bolge) return b.bolge-a.bolge;
+      return b.guc-a.guc;
+    });
+    return rows;
+  }
+
+  /* Panel sol üstte kapalı başlar; açık/kapalı durumu #lb-panel üzerindeki
+     "open" sınıfıyla tutulur. Bu render her drawMap()'te çağrıldığı için
+     yalnızca içeriği (satırlar + kapalı rozetin sıra yazısı) tazeler, panel
+     kutusuna dokunmaz — açıkken tur ilerledi diye kendiliğinden kapanmaz. */
+  function renderScoreboard(){
+    var panel=document.getElementById("lb-panel");
+    var body=document.getElementById("lb-body");
+    var toggleTxt=document.getElementById("lb-toggle-txt");
+    if(!panel || !body || !regions.length) return;
+    var rows=scoreboardRows();
+
+    var youIdx=-1;
+    rows.forEach(function(row,i){ if(row.you) youIdx=i; });
+    toggleTxt.textContent = youIdx>=0 ? ("#"+(youIdx+1)+"/"+rows.length) : "Sıralama";
+
+    var html="";
+    rows.forEach(function(row,i){
+      html += "<button class='lb-row lb-grid"+(row.you?" lb-you":"")+"' data-lb='"+row.key+"'>"+
+        "<span class='lb-rank'>"+(i+1)+"</span>"+
+        "<span class='lb-dot' style='background:"+row.color+"'></span>"+
+        "<span class='lb-name'>"+row.name+"</span>"+
+        "<span class='lb-val' title='İl sayısı'>"+row.bolge+"</span>"+
+        "<span class='lb-val' title='Güç'>"+row.guc+"</span>"+
+        "<span class='lb-val"+(row.altinBilinir?"":" lb-unknown")+"' title='"+(row.altinBilinir?"Altın":"Bilinmiyor")+"'>"+(row.altinBilinir?row.altin:"?")+"</span>"+
+      "</button>";
+    });
+    body.innerHTML=html;
+    lbAnchors={};
+    rows.forEach(function(row){ lbAnchors[row.key]=row.anchor; });
+    body.querySelectorAll(".lb-row").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        centerOnAnchor(lbAnchors[btn.dataset.lb]);
+        panel.classList.remove("open");
+        toggleBtn.setAttribute("aria-expanded","false");
+      });
+    });
+  }
+
+  var toggleBtn=document.getElementById("lb-toggle");
+  toggleBtn.addEventListener("click", function(){
+    var panel=document.getElementById("lb-panel");
+    var willOpen=!panel.classList.contains("open");
+    panel.classList.toggle("open", willOpen);
+    toggleBtn.setAttribute("aria-expanded", willOpen?"true":"false");
+  });
+  // Panel açıkken haritaya ya da başka bir yere dokununca kapansın.
+  document.addEventListener("pointerdown", function(e){
+    var panel=document.getElementById("lb-panel");
+    if(panel.classList.contains("open") && !panel.contains(e.target)){
+      panel.classList.remove("open");
+      toggleBtn.setAttribute("aria-expanded","false");
+    }
+  });
 
   /* ================= Pixel-by-pixel capture animation ================= */
   function animateCapture(region, doneCallback){
+    invalidateRoutes();
     var flipped=new Set();
     var queue=[];
     region.pixels.forEach(function(p){
@@ -443,6 +1485,7 @@
         clearInterval(timer);
         region.owner="player";
         animating=null;
+        bfStatBump("toplamFetih");
         drawMap();
         doneCallback && doneCallback();
       }
@@ -483,6 +1526,9 @@
   function closeSheet(){
     overlay.classList.remove("show");
     sheet.classList.remove("open");
+    if(blastPreview) blastPreview=null;
+    currentSel=null;          // seçim halkası ve gizli rakam da paneli kapatınca gider
+    drawMap();
   }
   overlay.addEventListener("click", closeSheet);
   document.getElementById("sheet-close").addEventListener("click", closeSheet);
@@ -506,10 +1552,10 @@
       return;
     }
     if(region.type==="empty"){
-      openCapturePanel(region, {cost:region.cost, icon:"🟩", label:"Boş Bölge", desc:"Sahipsiz toprak. Ele geçirip genişleyebilirsin."});
+      openCapturePanel(region, {cost:region.cost, icon:"🟩", label:region.name, desc:"Sahipsiz toprak. Ele geçirip genişleyebilirsin."});
     } else if(region.type==="resource"){
       var rk=RESOURCE_KINDS[region.resKind];
-      openCapturePanel(region, {cost:region.cost, icon:rk.raw, label:rk.label, desc:"Ele geçirilince otomatik "+rk.built+" kurulur, +"+region.goldBonus+" altın/tur pasif üretim sağlar."});
+      openCapturePanel(region, {cost:region.cost, icon:rk.raw, label:region.name+" · "+rk.label, desc:"Ele geçirilince otomatik "+rk.built+" kurulur, +"+region.goldBonus+" altın/tur pasif üretim sağlar."});
     } else if(region.type==="enemy" || region.type==="enemyCapital"){
       openAttackPanel(region);
     }
@@ -517,6 +1563,7 @@
 
   function openCapturePanel(region, opts){
     currentSel=region;
+    drawMap();
     var canAfford = state.gold>=opts.cost;
     var html = "<button class='action-btn primary' id='do-capture' "+(canAfford?"":"disabled")+">"+
       "<span><span class='a-name'>Ele Geçir</span><span class='a-desc'>"+opts.desc+"</span></span>"+
@@ -528,103 +1575,225 @@
       closeSheet();
       animateCapture(region, function(){
         drawMap();
-        showToast("🎉 Bölge ele geçirildi, sınırın ilerledi.");
+        showToast("🎉 "+region.name+" ele geçirildi, sınırın ilerledi.");
       });
     });
   }
 
   function openAttackPanel(region){
     currentSel=region;
+    drawMap();
     var isBoss = region.type==="enemyCapital";
-    var sub = "Savunma gücü: "+region.defense+" 🪖 · Elindeki asker: "+state.army+" 🪖"+(region.wall?" · 🧱 Duvarlı bölge":"");
+    var known = isScouted(region);
+    var structs = defenseStructures(region);
+    var atkKey = "piyade";
 
-    var startAmt = state.army<=0 ? 0 : Math.min(region.defense, state.army);
-    var sendAmt = startAmt;
+    var sub = "Garnizon gücü: "+region.defense+" 🪖 · Elindeki asker: "+state.army+" 🪖";
+
+    // Bölgenin tahkimatı: keşfedilmemişse gizli kalır, saldırı tipini körlemesine seçersin.
+    var defHtml;
+    if(!known){
+      defHtml="<div class='def-row unknown'>❓ <span>Bu bölge menzilinin dışında — tahkimatını göremiyorsun. "+
+        "Komşusunu ele geçirirsen savunması ortaya çıkar.</span></div>";
+    } else if(!structs.length){
+      defHtml="<div class='def-row'><span class='def-none'>Tahkimat yok — açık hedef.</span></div>";
+    } else {
+      defHtml="<div class='def-row'>"+structs.map(function(k){
+        return "<span class='def-chip'>"+symbolImg(k,"sym-img def-sym",true)+BUILDINGS[k].name+"</span>";
+      }).join("")+"</div>";
+    }
+
+    var typeHtml="<div class='atk-label'>Saldırı tipini seç — <b>gereken asker</b> tahkimata göre değişir</div>"+
+      "<div class='atk-types' id='atk-types'></div>"+
+      "<div class='atk-desc' id='atk-desc'></div>";
+
+    var ratioPct=50;
+    var sendAmt = Math.max(1, Math.round(state.army*ratioPct/100));
 
     var html =
-      "<div class='qty-row'>"+
-        "<button class='qty-btn' id='qty-minus'>−</button>"+
-        "<div class='qty-display'><span id='qty-value'>0</span><span class='qty-label'>asker</span></div>"+
-        "<button class='qty-btn' id='qty-plus'>+</button>"+
+      defHtml + typeHtml +
+      "<div class='ratio-row'>"+
+        "<div class='ratio-head'>"+
+          "<span class='ratio-pct' id='ratio-pct'>50%</span>"+
+          "<span class='ratio-abs'>ordunun <b id='qty-value'>0</b> askeri</span>"+
+        "</div>"+
+        "<input type='range' id='ratio-slider' min='1' max='100' value='50'>"+
       "</div>"+
       "<div class='qty-presets'>"+
-        "<button class='qty-preset' id='qty-min'>Min ("+region.defense+")</button>"+
-        "<button class='qty-preset' data-add='5'>+5</button>"+
-        "<button class='qty-preset' data-add='10'>+10</button>"+
-        "<button class='qty-preset' id='qty-max'>Tümü ("+state.army+")</button>"+
+        "<button class='qty-preset' data-pct='10'>%10</button>"+
+        "<button class='qty-preset' data-pct='25'>%25</button>"+
+        "<button class='qty-preset' data-pct='50'>%50</button>"+
+        "<button class='qty-preset' id='qty-min'>Tam yetecek</button>"+
+        "<button class='qty-preset' data-pct='100'>%100</button>"+
       "</div>"+
       "<div class='outcome-preview' id='outcome-preview'></div>"+
       "<button class='action-btn danger-action' id='do-attack'>"+
         "<span><span class='a-name'>Saldır</span><span class='a-desc'>Seçtiğin kadar askeri gönder</span></span>"+
         "<span class='a-cost' id='attack-cost-tag'></span></button>";
 
-    openSheet(isBoss?"👑":(region.wall?"🧱":"🪖"), isBoss?"Düşman Başkenti":"Düşman Karakolu", sub, html);
+    openSheet(isBoss?"👑":(structs.length&&known?"🧱":"🪖"), region.name+(isBoss?" · Düşman Başkenti":""), sub, html);
 
     var qtyValEl=document.getElementById("qty-value");
     var previewEl=document.getElementById("outcome-preview");
     var attackBtn=document.getElementById("do-attack");
     var costTag=document.getElementById("attack-cost-tag");
+    var descEl=document.getElementById("atk-desc");
+    var typesEl=document.getElementById("atk-types");
 
     function clampAmt(v){ return Math.max(0, Math.min(state.army, v)); }
 
     function refresh(){
+      var atk=ATTACKS[atkKey];
+      var d=defenseAgainst(region, atkKey);
+      renderTypes();
       sendAmt=clampAmt(sendAmt);
       qtyValEl.textContent=sendAmt;
-      costTag.textContent="🪖"+sendAmt;
-      attackBtn.disabled = sendAmt<1;
+      if(pctEl) pctEl.textContent="%"+ratioPct;
+      costTag.textContent="🪖"+sendAmt+(atk.gold?" 💰"+atk.gold:"");
+      attackBtn.disabled = sendAmt<1 || !attackAvailability(atkKey).ok;
+
+      // Tahkimatın bu saldırı tipine etkisi — keşfedilmemiş bölgede gizli.
+      var effTxt;
+      if(!known){
+        effTxt="Etkin savunma: <b>?</b> — körlemesine saldırıyorsun.";
+      } else {
+        effTxt="Etkin savunma: <b>"+d.value+"</b> 🪖";
+        if(d.notes.length){
+          effTxt += " <span class='eff-note'>("+d.notes.map(function(n){
+            return BUILDINGS[n.key].name+" ×"+n.mult;
+          }).join(", ")+")</span>";
+        }
+      }
+
+      // Konumun savaşa etkisi — asker sayısından bağımsız, kalıcı görünür
+      var c=d.cephe;
+      var konum="<div class='konum-satir'>";
+      konum += "<span class='ks "+(c.cephe>1?"iyi":"")+"'>⚔ "+c.cephe+"/"+c.gecilirKomsu+" cephe"+
+               (c.kusatma<1 ? " · kuşatma ×"+c.kusatma.toFixed(2) : " · cepheden") + "</span>";
+      if(c.dag) konum += "<span class='ks kotu'>⛰ "+c.dag+" dağ · savunma ×"+c.arazi.toFixed(2)+"</span>";
+      konum += "</div>";
+      if(c.cephe<=1 && c.gecilirKomsu>1){
+        konum += "<div class='konum-ipucu'>Bu ile başka bir komşusundan da dayanırsan savunması ×0.82'ye düşer.</div>";
+      }
+      effTxt += konum;
+      descEl.innerHTML="<div class='atk-line'>"+atk.desc+"</div><div class='atk-line'>"+effTxt+"</div>";
+
       if(sendAmt<1){
         previewEl.className="outcome-preview";
         previewEl.textContent="Gönderecek askerin yok.";
-      } else if(sendAmt>=region.defense){
-        var extra=sendAmt-region.defense;
-        var wallLoss = region.wall ? Math.floor(sendAmt/WALL_ATTRITION_DIVISOR) : 0;
-        extra=Math.max(0, extra-wallLoss);
-        var loot=Math.floor(region.defense*2.5);
+        return;
+      }
+      if(!known){
+        previewEl.className="outcome-preview";
+        previewEl.textContent="❓ Tahkimatı bilmeden sonucu kestiremezsin. Önce komşu bir bölgeyi al, sonra doğru saldırı tipini seç.";
+        return;
+      }
+      if(sendAmt>=d.value){
+        var leftover=Math.floor((sendAmt-d.value)*atk.garrisonMult);
+        var loot=Math.floor(region.defense*2.5*atk.lootMult);
         previewEl.className="outcome-preview ok";
-        previewEl.textContent="✅ Bu bölgeyi fethedersin · "+loot+" 💰 ganimet"+
-          (wallLoss>0?(" · 🧱 duvarı aşarken "+wallLoss+" asker daha kaybedersin"):"")+
-          (extra>0?(" · fazladan "+extra+" asker orada garnizon kalıp savunmayı güçlendirir 🛡️"):"")+".";
+        previewEl.innerHTML="✅ Bölgeyi fethedersin · "+loot+" 💰 ganimet"+
+          (atk.lootMult<1?" <span class='eff-note'>(bombardıman ganimeti yaktı)</span>":"")+
+          (atk.destroys&&hasStructure(region,atk.destroys)?" · "+BUILDINGS[atk.destroys].name+" yıkılır":"")+
+          (leftover>0?(" · "+leftover+" asker garnizon kalır 🛡️"):" · geriye garnizon kalmaz");
       } else {
-        var mult = region.wall ? 0.5 : 0.8;
-        var afterDef=Math.max(1, region.defense-Math.max(1,Math.floor(sendAmt*mult)));
+        var afterDef=Math.max(1, region.defense-Math.max(1,Math.floor(sendAmt*atk.softenMult)));
         previewEl.className="outcome-preview bad";
-        previewEl.textContent="⚠️ Yetersiz kuvvet — saldırı başarısız olur, "+sendAmt+" askerini kaybedersin. Savunma "+region.defense+" → yaklaşık "+afterDef+"'e zayıflar"+(region.wall?" (duvar sayesinde daha az zayıflıyor)":"")+", tekrar deneyebilirsin.";
+        previewEl.innerHTML="⚠️ Yetersiz — "+sendAmt+" askerin de gider"+(atk.gold?" ve "+atk.gold+"💰 boşa gider":"")+
+          ". Garnizon "+region.defense+" → ~"+afterDef+" düşer."+
+          (d.mult>1?" <span class='eff-note'>Tahkimatı bu saldırıya karşı çok güçlü — tipi değiştir.</span>":"");
       }
     }
 
-    document.getElementById("qty-minus").addEventListener("click", function(){ sendAmt-=1; refresh(); });
-    document.getElementById("qty-plus").addEventListener("click", function(){ sendAmt+=1; refresh(); });
-    document.getElementById("qty-min").addEventListener("click", function(){ sendAmt=Math.min(region.defense,state.army); refresh(); });
-    document.getElementById("qty-max").addEventListener("click", function(){ sendAmt=state.army; refresh(); });
-    document.querySelectorAll(".qty-preset[data-add]").forEach(function(btn){
-      btn.addEventListener("click", function(){ sendAmt+=parseInt(btn.dataset.add,10); refresh(); });
+    /* Her tipin bu bölgeye karşı gerçek maliyetini düğmenin üstünde gösterir:
+       oyuncu üç sayıyı yan yana görüp karşılaştırır, tahmin etmek zorunda kalmaz. */
+    function renderTypes(){
+      typesEl.innerHTML=ATTACK_KEYS.map(function(k){
+        var a=ATTACKS[k], av=attackAvailability(k), d=defenseAgainst(region,k);
+        var tag;
+        if(!known) tag="<span class='at-eff'>tahkimat bilinmiyor</span>";
+        else if(d.bypassed.length) tag="<span class='at-eff good'>"+d.bypassed.map(function(n){ return BUILDINGS[n].name; }).join(", ")+" aşılır</span>";
+        else if(d.notes.length) tag="<span class='at-eff bad'>"+d.notes.map(function(n){ return BUILDINGS[n.key].name+" ×"+n.mult; }).join(" · ")+"</span>";
+        else tag="<span class='at-eff'>engel yok</span>";
+        return "<button class='atk-type"+(k===atkKey?" sel":"")+"' data-atk='"+k+"'"+(av.ok?"":" disabled")+">"+
+          "<span class='at-head'><span class='at-icon'>"+a.icon+"</span><span class='at-name'>"+a.name+"</span></span>"+
+          "<span class='at-need'>"+(known?d.value:"?")+"<span class='at-need-u'>🪖 gerek</span></span>"+
+          tag+
+          "<span class='at-cost'>"+(a.gold?("💰"+a.gold+(a.lootMult<1?" · ganimet ½":"")):"bedava")+"</span>"+
+          (av.ok?"":"<span class='at-lock'>🔒 "+av.reason+"</span>")+
+        "</button>";
+      }).join("");
+    }
+
+    function setAtk(k){
+      if(!attackAvailability(k).ok) return;
+      atkKey=k;
+      refresh();
+    }
+
+    typesEl.addEventListener("click", function(e){
+      var btn=e.target.closest ? e.target.closest(".atk-type") : null;
+      if(btn && !btn.disabled) setAtk(btn.dataset.atk);
+    });
+
+    /* Oran çubuğu: mutlak sayı yerine ordunun yüzdesini gönderirsin.
+       Ordu büyüdükçe aynı oran daha çok asker demek — karar ölçekten bağımsız. */
+    var slider=document.getElementById("ratio-slider");
+    var pctEl=document.getElementById("ratio-pct");
+    function setPct(p){
+      ratioPct=clamp(Math.round(p),1,100);
+      slider.value=ratioPct;
+      sendAmt=Math.max(1, Math.round(state.army*ratioPct/100));
+      refresh();
+    }
+    slider.addEventListener("input", function(){ setPct(parseInt(slider.value,10)); });
+    document.getElementById("qty-min").addEventListener("click", function(){
+      var need=known?defenseAgainst(region,atkKey).value:region.defense;
+      setPct(state.army>0 ? Math.min(100,Math.ceil(need/state.army*100)) : 100);
+    });
+    document.querySelectorAll(".qty-preset[data-pct]").forEach(function(btn){
+      btn.addEventListener("click", function(){ setPct(parseInt(btn.dataset.pct,10)); });
     });
 
     attackBtn.addEventListener("click", function(){
+      var atk=ATTACKS[atkKey];
+      if(!attackAvailability(atkKey).ok) return;
       var sent=clampAmt(sendAmt);
       if(sent<1) return;
+      var d=defenseAgainst(region, atkKey);
       state.army-=sent;
+      state.gold-=atk.gold;
       closeSheet();
-      if(sent>=region.defense){
-        var wallLoss = region.wall ? Math.floor(sent/WALL_ATTRITION_DIVISOR) : 0;
-        var leftover=Math.max(0, sent-region.defense-wallLoss);
-        var loot=Math.floor(region.defense*2.5);
+      if(sent>=d.value){
+        var leftover=Math.floor((sent-d.value)*atk.garrisonMult);
+        var loot=Math.floor(region.defense*2.5*atk.lootMult);
+        var razed = atk.destroys && hasStructure(region, atk.destroys);
         animateCapture(region, function(){
           region.garrison=leftover;
+          // Fethedilen tahkimat sana kalır; bombardımanla yıktığın kısım gider.
+          if(razed){ region.defenses=region.defenses.filter(function(k){ return k!==atk.destroys; }); }
           state.gold+=loot;
           drawMap();
-          showToast("⚔️ Zafer! "+loot+" altın ganimet"+
-            (wallLoss>0?(" · 🧱 duvara "+wallLoss+" asker kaptırdın"):"")+
-            (leftover>0?(" · "+leftover+" asker garnizon bıraktın 🛡️"):"")+".");
+          var vc=regionCenter(region);
+          addShake(2.2);
+          addBurst(vc.x, vc.y, 26, ["#f0c944","#d4a72c","#cfc4a4"], 1.7, 900);
+          addFloater(vc.x, vc.y-6, "+"+loot+" 💰", "#f0c944");
+          showToast(atk.icon+" Zafer! "+loot+" altın ganimet"+
+            (razed?" · "+BUILDINGS[atk.destroys].name+" yıkıldı":"")+
+            (leftover>0?(" · "+leftover+" asker garnizon 🛡️"):"")+".");
           if(isBoss){ setTimeout(showVictory, 400); }
         });
       } else {
-        var mult = region.wall ? 0.5 : 0.8;
-        var reduction=Math.max(1,Math.floor(sent*mult));
+        var reduction=Math.max(1,Math.floor(sent*atk.softenMult));
         region.defense=Math.max(1, region.defense-reduction);
         drawMap();
         flashRegion(region.id);
-        showToast("💥 Saldırı püskürtüldü, "+sent+" asker kaybettin. Savunma "+region.defense+"'e zayıfladı.");
+        var fc=regionCenter(region);
+        addShake(3.5);
+        addBurst(fc.x, fc.y, 16, ["#c9c0a4","#8d8266","#b5432f"], 1.5, 620);
+        addFloater(fc.x, fc.y-6, "-"+sent+" 🪖", "#e08a72");
+        var why = d.mult>1 ? " Tahkimatı bu saldırıyı katladı (×"+d.mult.toFixed(1)+")." : "";
+        showToast("💥 Saldırı püskürtüldü, "+sent+" asker gitti."+why+" Garnizon "+region.defense+".");
       }
     });
 
@@ -647,36 +1816,100 @@
     }
     state.gold-=b.cost;
     region.building=key;
+    invalidateRoutes();
     drawMap();
-    showToast(b.icon+" "+b.name+" inşa edildi.");
+    showToast("🏗️ "+b.name+" inşa edildi.");
+    return {ok:true};
+  }
+
+  /* Garnizon artık yalnızca baskınlarla erimiyor — ulusal ordundan bu
+     bölgeye asker aktarabilirsin. Tek yeni sayı yok: aynı garrison alanı,
+     aynı defenseAgainst() matematiği (tryRaid zaten bunu okuyor) üzerinden
+     işliyor, yani takviye doğrudan "bu bölge bir sonraki baskını atlatır
+     mı" sorusunu etkiliyor. Başkent de dahil — son savunma hattı odur. */
+  function tryReinforce(region, amount){
+    if(!region || region.owner!=="player"){
+      showToast("❌ Takviye yalnızca kendi bölgene gönderilebilir.");
+      return {ok:false};
+    }
+    amount=Math.max(0, Math.min(Math.round(amount), state.army));
+    if(amount<1){
+      showToast("❌ Gönderecek asker yok.");
+      return {ok:false};
+    }
+    state.army-=amount;
+    region.garrison=(region.garrison||0)+amount;
+    drawMap();
+    showToast("🪖 "+region.name+"'e "+amount+" asker takviye edildi — garnizon "+region.garrison+".");
     return {ok:true};
   }
 
   function openBuildPanel(region){
     currentSel=region;
-    if(region.type==="capital"){
-      openSheet("🏰","Başkentin","Asker ve altın üretiminin kalbi. Her tur otomatik üretim yapar.","");
-      return;
-    }
-    var html="";
-    if(region.building){
+    drawMap();
+
+    var isCapital = region.type==="capital";
+    var reinforceHtml =
+      "<div class='ratio-row'>"+
+        "<div class='ratio-head'>"+
+          "<span class='ratio-pct' id='ratio-pct'>0%</span>"+
+          "<span class='ratio-abs'>ordunun <b id='qty-value'>0</b> askeri</span>"+
+        "</div>"+
+        "<input type='range' id='ratio-slider' min='0' max='100' value='0'>"+
+      "</div>"+
+      "<button class='action-btn primary' id='do-reinforce' disabled>"+
+        "<span><span class='a-name'>Takviye Gönder</span>"+
+        "<span class='a-desc'>Garnizon: "+(region.garrison||0)+" 🪖 — baskınlara karşı kalıcı savunma</span></span>"+
+      "</button>";
+
+    var bodyHtml;
+    if(isCapital){
+      bodyHtml = "<div class='built-row'><span style='font-size:22px'>🏰</span>"+
+        "<span>Asker ve altın üretiminin kalbi. Her tur otomatik üretim yapar. <b>Düşerse sefer biter</b> — garnizonunu boş bırakma.</span></div>";
+    } else if(region.building){
       var b=BUILDINGS[region.building];
-      html = "<div class='sheet-sub'>Bu bölgede zaten <b style='color:var(--text)'>"+b.name+"</b> inşa edilmiş.</div>";
+      bodyHtml = "<div class='built-row'>"+symbolImg(region.building,"sym-img built-sym")+
+        "<span>Bu bölgede zaten <b>"+b.name+"</b> inşa edilmiş.<br><span class='built-desc'>"+b.desc+"</span></span></div>";
     } else {
+      bodyHtml="";
       Object.keys(BUILDINGS).forEach(function(key){
         var b=BUILDINGS[key];
         var canAfford = state.gold>=b.cost;
-        html += "<button class='action-btn build-btn' data-key='"+key+"' "+(canAfford?"":"disabled")+">"+
-          "<span><span class='a-name'>"+b.icon+" "+b.name+"</span><span class='a-desc'>"+b.desc+"</span></span>"+
+        bodyHtml += "<button class='action-btn build-btn' data-key='"+key+"' "+(canAfford?"":"disabled")+">"+
+          "<span><span class='a-name'>"+symbolImg(key,"sym-img a-sym")+b.name+"</span><span class='a-desc'>"+b.desc+"</span></span>"+
           "<span class='a-cost'>💰"+b.cost+"</span></button>";
       });
     }
-    openSheet("🏗️","Bölgeye İnşa Et","Bu bölgede bir yapı kurabilirsin, ya da bina panelinden sürükleyip bırakabilirsin.", html);
-    document.querySelectorAll(".build-btn").forEach(function(btn){
-      btn.addEventListener("click", function(){
-        if(tryBuild(region, btn.dataset.key).ok) closeSheet();
-      });
+
+    openSheet(isCapital?"🏰":"🏗️", region.name,
+      isCapital?"":"Bu bölgede bir yapı kurabilirsin, ya da bina panelinden sürükleyip bırakabilirsin.",
+      reinforceHtml+"<div class='sheet-divider'></div>"+bodyHtml);
+
+    var slider=document.getElementById("ratio-slider");
+    var pctEl=document.getElementById("ratio-pct");
+    var absEl=document.getElementById("qty-value");
+    var sendBtn=document.getElementById("do-reinforce");
+    function refreshReinforce(){
+      var pct=parseInt(slider.value,10);
+      var amt=state.army>0 ? Math.round(state.army*pct/100) : 0;
+      pctEl.textContent=pct+"%";
+      absEl.textContent=amt;
+      sendBtn.disabled = amt<1;
+    }
+    slider.addEventListener("input", refreshReinforce);
+    refreshReinforce();
+    sendBtn.addEventListener("click", function(){
+      var amt=Math.round(state.army*parseInt(slider.value,10)/100);
+      if(tryReinforce(region, amt).ok) closeSheet();
     });
+
+    if(!isCapital && !region.building){
+      document.querySelectorAll(".build-btn").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          if(tryBuild(region, btn.dataset.key).ok) closeSheet();
+        });
+      });
+    }
   }
 
   function regionAtPoint(clientX, clientY){
@@ -691,10 +1924,84 @@
     return rid===-1 ? null : regions[rid];
   }
 
-  canvas.addEventListener("click", function(e){
-    var region=regionAtPoint(e.clientX, e.clientY);
-    if(!region){ showToast("🌊 Bu alan deniz, buradan geçemezsin."); return; }
-    onRegionTap(region.id);
+  /* Harita etkileşimi: tek parmak kaydırır, iki parmak yakınlaştırır,
+     hareketsiz dokunuş il seçer. Sürükleyip bıraktığında seçim tetiklenmez. */
+  var aktifPtr={}, ptrSayi=0, sonPan=null, pinchBase=null, hareket=0;
+
+  function ptrMerkez(){
+    var xs=[], ys=[];
+    for(var k in aktifPtr){ xs.push(aktifPtr[k].x); ys.push(aktifPtr[k].y); }
+    var sx=0, sy=0;
+    xs.forEach(function(v){ sx+=v; }); ys.forEach(function(v){ sy+=v; });
+    return {x:sx/xs.length, y:sy/ys.length};
+  }
+  function ptrMesafe(){
+    var a=null,b=null;
+    for(var k in aktifPtr){ if(!a) a=aktifPtr[k]; else if(!b) b=aktifPtr[k]; }
+    if(!a||!b) return 0;
+    return Math.sqrt(dist2(a.x,a.y,b.x,b.y));
+  }
+
+  mapWrap.addEventListener("pointerdown", function(e){
+    // Liderlik paneli haritanın üzerinde yüzen bir arayüz — dokunuşunu
+    // kaydırma/yakınlaştırma sistemi yutmasın, buton kendi click'ini alsın.
+    if(e.target.closest && e.target.closest("#lb-panel")) return;
+    if(aktifPtr[e.pointerId]) return;
+    aktifPtr[e.pointerId]={x:e.clientX, y:e.clientY};
+    ptrSayi++;
+    hareket=0;
+    sonPan=ptrMerkez();
+    pinchBase = ptrSayi>=2 ? {d:ptrMesafe(), s:view.scale} : null;
+    try{ mapWrap.setPointerCapture(e.pointerId); }catch(err){}
+  });
+
+  mapWrap.addEventListener("pointermove", function(e){
+    if(!aktifPtr[e.pointerId]) return;
+    aktifPtr[e.pointerId]={x:e.clientX, y:e.clientY};
+    var merkez=ptrMerkez();
+    if(sonPan){
+      var dx=merkez.x-sonPan.x, dy=merkez.y-sonPan.y;
+      hareket+=Math.abs(dx)+Math.abs(dy);
+      view.tx+=dx; view.ty+=dy;
+    }
+    sonPan=merkez;
+    if(pinchBase && ptrSayi>=2){
+      var d=ptrMesafe();
+      if(d>0 && pinchBase.d>0){
+        view.scale=clamp(pinchBase.s*(d/pinchBase.d), MIN_SCALE, MAX_SCALE);
+        hareket+=8;
+      }
+    }
+    clampView();
+    applyTransform();
+  });
+
+  function ptrBitti(e){
+    if(!aktifPtr[e.pointerId]) return;
+    delete aktifPtr[e.pointerId];
+    ptrSayi=Math.max(0, ptrSayi-1);
+    if(ptrSayi===0){
+      sonPan=null; pinchBase=null;
+      if(hareket<9){                       // kaydırma değil, dokunuş
+        var region=regionAtPoint(e.clientX, e.clientY);
+        if(!region){ showToast("🌊 Bu alan deniz, buradan geçemezsin."); }
+        else { onRegionTap(region.id); }
+      }
+    } else {
+      sonPan=ptrMerkez();
+      pinchBase = ptrSayi>=2 ? {d:ptrMesafe(), s:view.scale} : null;
+    }
+  }
+  mapWrap.addEventListener("pointerup", ptrBitti);
+  mapWrap.addEventListener("pointercancel", ptrBitti);
+
+  mapWrap.addEventListener("wheel", function(e){
+    e.preventDefault();
+    zoomAt(e.deltaY<0 ? 1.15 : 1/1.15, e.clientX, e.clientY);
+  }, {passive:false});
+
+  mapWrap.addEventListener("dblclick", function(e){
+    zoomAt(view.scale<2.4 ? 2 : 1/view.scale, e.clientX, e.clientY);
   });
 
   /* ================= Bina paneli: sürükle-bırak ================= */
@@ -706,16 +2013,29 @@
     Object.keys(BUILDINGS).forEach(function(key){
       var b=BUILDINGS[key];
       html += "<div class='build-card' data-key='"+key+"'>"+
-        "<div class='bc-icon'>"+b.icon+"</div>"+
+        "<div class='bc-icon'>"+symbolImg(key,"sym-img")+"</div>"+
         "<div class='bc-name'>"+b.name+"</div>"+
         "<div class='bc-cost'>💰"+b.cost+"</div>"+
       "</div>";
     });
+    // Füzeler aynı tepsiden fırlatılır ama ayrı bir bölümde durur:
+    // bina kurmakla toprak yakmak aynı kutuya girmesin.
+    html += "<div class='tray-split'></div>";
+    NUKE_KEYS.forEach(function(key){
+      var n=NUKES[key];
+      html += "<div class='build-card nuke-card' data-nuke='"+key+"'>"+
+        "<div class='bc-icon nuke-icon'>☢</div>"+
+        "<div class='bc-name'>"+n.name+"</div>"+
+        "<div class='bc-cost'>💰"+n.cost+"</div>"+
+      "</div>";
+    });
+
     tray.innerHTML=html;
     tray.querySelectorAll(".build-card").forEach(function(cardEl){
       cardEl.addEventListener("pointerdown", function(e){
         e.preventDefault();
-        startDrag(cardEl.dataset.key, e.pointerId, cardEl, e.clientX, e.clientY);
+        var nk=cardEl.dataset.nuke;
+        startDrag(nk||cardEl.dataset.key, e.pointerId, cardEl, e.clientX, e.clientY, !!nk);
       });
     });
   }
@@ -726,14 +2046,16 @@
     dragState.ghostEl.style.top=y+"px";
   }
 
-  function startDrag(key, pointerId, cardEl, x, y){
+  function startDrag(key, pointerId, cardEl, x, y, isNuke){
     if(dragState) return;
-    var b=BUILDINGS[key];
     var ghost=document.createElement("div");
     ghost.id="drag-ghost";
-    ghost.innerHTML="<div class='dg-icon'>"+b.icon+"</div><div class='dg-hint' id='drag-hint'>Bir bölgeye sürükle</div>";
+    var face = isNuke ? "<div class='dg-icon nuke-icon'>☢</div>"
+                      : "<div class='dg-icon'>"+symbolImg(key,"sym-img")+"</div>";
+    ghost.innerHTML=face+"<div class='dg-hint' id='drag-hint'>"+
+      (isNuke?"Hedef bölgeye sürükle":"Bir bölgeye sürükle")+"</div>";
     document.body.appendChild(ghost);
-    dragState={key:key, cardEl:cardEl, ghostEl:ghost};
+    dragState={key:key, cardEl:cardEl, ghostEl:ghost, nuke:!!isNuke};
     cardEl.classList.add("dragging");
     try{ cardEl.setPointerCapture(pointerId); }catch(err){}
     positionGhost(x,y);
@@ -747,12 +2069,53 @@
     positionGhost(e.clientX, e.clientY);
     var region=regionAtPoint(e.clientX, e.clientY);
     var newHoverId = region ? region.id : null;
+    var hint=document.getElementById("drag-hint");
+
+    /* Füze sürüklenirken patlama alanı haritada canlı boyanır — nereyi
+       yakacağını bırakmadan önce görürsün. Komşuluk şartı yok: menzil serbest. */
+    if(dragState.nuke){
+      var n=NUKES[dragState.key];
+      var ids=null, own=0, total=0;
+      if(region && region.type!=="obstacle"){
+        var hits=blastRegions(region, n.rings);
+        ids=hits.map(function(h){ return h.region.id; });
+        own=hits.filter(function(h){ return h.region.owner==="player"; }).length;
+        total=hits.length;
+      }
+      var changed = newHoverId!==dragHoverRegionId ||
+        (ids||[]).join(",")!==(blastPreview||[]).join(",");
+      dragHoverRegionId=newHoverId;
+      blastPreview=ids;
+      if(changed) drawMap();
+      if(!hint) return;
+      var av=nukeAvailability(dragState.key);
+      if(!region){
+        hint.className="dg-hint"; hint.textContent="📍 Haritanın üzerine getir";
+      } else if(region.type==="obstacle"){
+        hint.className="dg-hint bad"; hint.textContent="❌ Dağa fırlatılamaz";
+      } else if(!av.ok){
+        hint.className="dg-hint bad"; hint.textContent="❌ "+av.reason;
+      } else {
+        var sam=samsInRange(region).length, need=samNeeded(dragState.key);
+        if(sam>=need){
+          hint.className="dg-hint bad";
+          hint.textContent="🛡️ "+sam+" SAM menzilde — önlenir";
+        } else if(own>0){
+          hint.className="dg-hint bad";
+          hint.textContent="⚠️ "+total+" bölge yanar · "+own+" tanesi senin";
+        } else {
+          hint.className="dg-hint ok";
+          hint.textContent="☢ "+total+" bölgeyi yak"+(sam?" · "+sam+" SAM yetmez":"");
+        }
+      }
+      return;
+    }
+
     if(newHoverId!==dragHoverRegionId){
       dragHoverRegionId=newHoverId;
       drawMap();
     }
     var b=BUILDINGS[dragState.key];
-    var hint=document.getElementById("drag-hint");
     if(!hint) return;
     if(!region){
       hint.className="dg-hint"; hint.textContent="📍 Haritanın üzerine getir";
@@ -777,10 +2140,20 @@
     cardEl.removeEventListener("pointermove", onDragMove);
     cardEl.removeEventListener("pointerup", onDragEnd);
     cardEl.removeEventListener("pointercancel", onDragEnd);
+    var wasNuke=dragState.nuke;
     dragState.ghostEl.remove();
     dragState=null;
     dragHoverRegionId=null;
+    blastPreview=null;
     drawMap();
+    if(wasNuke){
+      if(!region){ showToast("Fırlatma iptal edildi."); return; }
+      if(region.type==="obstacle"){ showToast("⛰️ Dağa fırlatılamaz."); return; }
+      var av=nukeAvailability(key);
+      if(!av.ok){ showToast("❌ "+av.reason+"."); return; }
+      launchNuke(region, key);
+      return;
+    }
     if(region){ tryBuild(region, key); }
     else { showToast("İnşa iptal edildi."); }
   }
@@ -795,6 +2168,7 @@
       if(t.type==="capital"){ goldGain+=5; armyGain+=2; }
       if(t.owner==="player"){
         ownedCount++;
+        if(isScorched(t)) return;          // kavrulmuş toprak üretim yapmaz
         if(t.type==="resource") goldGain+=t.goldBonus;
         if(t.building){
           var b=BUILDINGS[t.building];
@@ -803,15 +2177,35 @@
         }
       }
     });
+    // Fabrika–Kent arası işleyen her konvoy hattı ticaret geliri üretir.
+    if(routesDirty) rebuildRoutes();
+    var ticaret=workerRoutes.length*4;
+    goldGain+=ticaret;
+
     var expansionBonus=Math.floor(ownedCount/3);
     armyGain += expansionBonus;
+
+    /* Asker tavanı: taban + fethedilen toprak + Kent'ler. Tavana yaklaştıkça
+       üretim yavaşlar (OpenFront'un nüfus eğrisi gibi) — sonsuz yığınak yok,
+       ordu büyütmek için toprak ya da Kent gerekir. */
+    var cap=40 + ownedCount*6;
+    regions.forEach(function(r){
+      if(r.owner==="player" && r.building && BUILDINGS[r.building].popCap && !isScorched(r)){
+        cap += BUILDINGS[r.building].popCap;
+      }
+    });
+    state.maxArmy=cap;
+    var doluluk=state.army/cap;
+    if(doluluk>=1){ armyGain=0; }
+    else { armyGain=Math.max(0, Math.round(armyGain*(1-doluluk))); }
     if(expansionBonus>state.lastExpansionBonus){
       state.lastExpansionBonus=expansionBonus;
       showToast("🎖️ Fethedilen topraklar büyüdükçe asker üretimin hızlandı! (+"+expansionBonus+"/tur)");
     }
     state.gold+=goldGain;
-    state.army+=armyGain;
+    state.army=Math.min(state.maxArmy, state.army+armyGain);
     state.turn+=1;
+    invalidateRoutes();          // kavrulma süresi dolmuş olabilir
     if(goldGain>0) showGoldPopup(goldGain);
     drawMap();
   }
@@ -826,26 +2220,131 @@
     setTimeout(function(){ el.remove(); }, 1350);
   }
 
+  /* Baskın artık gerçek bir tehdit: savunma yetersizse önce bölgeyi yıpratır
+     (garnizonu erir, tahkimatı yıkılır), yıpranmış bölge bir daha vurulursa
+     düşmanın eline geçer. Elinde başkentten başka bölge kalmadıysa ve başkent
+     kuşatılmışsa gelen baskın oyunu bitirir. */
   function tryRaid(){
     if(state.gameOver || animating) return;
+
     var borders=regions.filter(function(r){
       return r.owner==="player" && r.type!=="capital" && isAdjacentToEnemy(r);
     });
-    if(!borders.length) return;
-    var target=borders[randInt(0,borders.length-1)];
+    var target, lastStand=false;
+    if(borders.length){
+      target=borders[randInt(0,borders.length-1)];
+    } else {
+      var cap=regions[0];
+      if(cap.owner!=="player" || !isAdjacentToEnemy(cap)) return;
+      target=cap; lastStand=true;
+    }
+
     state.raidCount+=1;
     var power=6+state.raidCount;
-    var def=effectiveDefense(target);
-    if(def>=power){
-      state.gold+=8;
-      showToast("🛡️ Düşman baskını püskürtüldü! (+8 altın)");
+
+    /* Düşman zamanla akıllanır: tahkimatına en az takılan tipi seçme olasılığı
+       yükselir (tavan %75 — kurduğun savunma hep bir şans taşır). */
+    var smartChance=Math.min(0.75, 0.25+state.raidCount*0.05);
+    var pick;
+    if(Math.random()<smartChance){
+      var best=Infinity;
+      ATTACK_KEYS.forEach(function(k){
+        var v=defenseAgainst(target,k).value;
+        if(v<best){ best=v; pick=k; }
+      });
     } else {
-      state.gold=Math.max(0,state.gold-20);
-      state.army=Math.max(0,state.army-2);
+      pick=ATTACK_KEYS[randInt(0,ATTACK_KEYS.length-1)];
+    }
+    var atk=ATTACKS[pick];
+    var def=defenseAgainst(target, pick);
+    var c=regionCenter(target);
+
+    if(def.value>=power){
+      state.gold+=8;
+      addBurst(c.x, c.y, 10, ["#5fa87f","#cfc4a4"], 1.1, 520);
+      showToast("🛡️ "+atk.icon+" "+atk.name+" püskürtüldü! "+
+        (def.notes.length?BUILDINGS[def.notes[0].key].name+" işini gördü. ":"")+"(+8 altın)");
+      drawMap();
+      return;
+    }
+
+    if(lastStand){
       flashRegion(target.id);
-      showToast("⚠️ Sınır bölgen baskına uğradı! Kayıplar var.");
+      addShake(9);
+      addBurst(c.x, c.y, 46, ["#b5432f","#e0603c","#8d8266"], 2.4, 1200);
+      drawMap();
+      setTimeout(showDefeat, 500);
+      return;
+    }
+
+    // Bölge hâlâ direniyorsa yıpranır; çıplak kalmışsa el değiştirir.
+    var stripped = !(target.garrison>0) && defenseStructures(target).length===0;
+    flashRegion(target.id);
+
+    if(stripped){
+      var bot=bots.length ? bots[randInt(0,bots.length-1)] : null;
+      target.owner="enemy";
+      target.type="enemy";
+      target.building=null;
+      target.defenses=[];
+      target.garrison=0;
+      target.botId = bot ? bot.id : null;
+      target.defense = clamp(power + randInt(-2,3), 3, 46);
+      state.army=Math.max(0, state.army-3);
+      addShake(6);
+      addBurst(c.x, c.y, 34, ["#b5432f","#e0603c","#8d8266"], 2.1, 1000);
+      addFloater(c.x, c.y-8, "BÖLGE DÜŞTÜ", "#e08a72");
+      invalidateRoutes();
+      showToast("🚨 "+atk.icon+" "+target.name+" düştü! Savunmasız bıraktığın toprak düşmanın eline geçti.");
+    } else {
+      var lost=Math.max(1, Math.round((target.garrison||0)*0.5));
+      target.garrison=Math.max(0,(target.garrison||0)-lost);
+      var razed="";
+      if(defenseStructures(target).length){
+        if(target.defenses.length){ target.defenses.pop(); razed="tahkimat yıkıldı"; }
+        else if(target.building){ razed=BUILDINGS[target.building].name+" yıkıldı"; target.building=null; }
+      }
+      state.gold=Math.max(0,state.gold-20);
+      addShake(4);
+      addBurst(c.x, c.y, 20, ["#b5432f","#8d8266","#cfc4a4"], 1.7, 800);
+      addFloater(c.x, c.y-8, "-"+lost+" 🪖", "#e08a72");
+      showToast("⚠️ "+atk.icon+" "+atk.name+" savunmanı deldi"+(razed?" · "+razed:"")+
+        ". Bir daha vurulursa bölgeyi kaybedersin.");
     }
     drawMap();
+  }
+
+  /* Rakip artık sadece yayılmıyor, tahkim de ediyor: zamanla bölgelerine
+     savunma yapısı dikiyor. Yani bugün piyadeyle aldığın bir bölge, birkaç tur
+     sonra duvarlı olabilir — geciktiğin her cephe pahalılaşır. */
+  function botFortify(bot, diff, owned){
+    // Zor botlar daha sık ve daha çok tahkim eder.
+    var chance = diff.reinforceStep*0.07;
+    if(Math.random()>chance) return false;
+
+    var cap = diff.reinforceStep>=3 ? 3 : (diff.reinforceStep>=2 ? 2 : 1);
+    var adaylar=owned.filter(function(r){ return r.defenses.length<cap; });
+    if(!adaylar.length) return false;
+
+    // Önce sana komşu olan bölgeleri tahkim eder — cephe hattı önceliklidir.
+    var cephe=adaylar.filter(function(r){
+      var yakin=false;
+      r.neighbors.forEach(function(nid){ if(regions[nid].owner==="player") yakin=true; });
+      return yakin;
+    });
+    var hedef=(cephe.length?cephe:adaylar)[randInt(0,(cephe.length?cephe:adaylar).length-1)];
+
+    var eksik=DEFENSIVE.filter(function(k){ return hedef.defenses.indexOf(k)<0; });
+    if(!eksik.length) return false;
+    var yeni=eksik[randInt(0,eksik.length-1)];
+    hedef.defenses.push(yeni);
+    hedef.defense=clamp(hedef.defense + Math.round((BUILDINGS[yeni].def||0)*0.5), 3, 60);
+
+    // Yalnızca görebildiğin tahkimattan haberin olur.
+    if(isScouted(hedef)){
+      showToast("🏗️ Düşman "+BUILDINGS[yeni].name+" dikti — o cephe artık daha sert.");
+    }
+    return true;
   }
 
   function botTickAll(){
@@ -862,6 +2361,8 @@
       var before=reinforceTarget.defense;
       reinforceTarget.defense=clamp(reinforceTarget.defense + Math.max(1,Math.round(diff.reinforceStep*0.6)), 3, 50);
       if(reinforceTarget.defense!==before) changed=true;
+
+      if(botFortify(bot, diff, owned)) changed=true;
 
       if(Math.random()<diff.expandChance){
         var candidates=[];
@@ -886,10 +2387,41 @@
 
   function startLoops(){
     state.started=true;
+    bfStatBump("seferSayisi");
     tickTimer=setInterval(tick, 2000);
     raidTimer=setInterval(tryRaid, 28000);
-    botTimer=setInterval(botTickAll, 4500);
+    botTimer=setInterval(botTickAll, 7000);
+    // Önce ekranı doldurmak için gereken asgari yakınlaşmayı kur, sonra
+    // oyuncu ilk açılışta kendi başkentini aramasın diye kamerayı oraya kaydır.
+    fitMapToScreen();
+    if(regions[0]) centerOnAnchor(regions[0].anchor);
   }
+
+  // Lobi #app'i gösterdiği an (display:none'dan çıktığı an) çağrılır —
+  // o ana kadar mapWrap'in kutusu 0x0 olduğundan fitMapToScreen()'in daha
+  // erken çalışması bir işe yaramaz.
+  window.__bfOnShow=function(){ fitMapToScreen(); };
+
+  // Lobideki "harita özeti" küçük resmi: uydurma bir SVG değil, oyunun
+  // gerçekten ürettiği kara siluetinin küçültülmüş hâli (generateWorld()
+  // sayfa yüklenirken zaten çalıştığı için landPixelsList hazırdır).
+  window.__bfPaintMiniMap=function(cv){
+    if(!cv || !landPixelsList.length) return;
+    var g=cv.getContext("2d");
+    var sx=cv.width/GRID_W, sy=cv.height/GRID_H;
+    g.clearRect(0,0,cv.width,cv.height);
+    g.fillStyle="rgba(139,147,162,0.5)";
+    for(var i=0;i<landPixelsList.length;i++){
+      var p=landPixelsList[i];
+      g.fillRect(p.x*sx, p.y*sy, Math.ceil(sx), Math.ceil(sy));
+    }
+    if(regions[0]){
+      g.fillStyle="#0ea5e9";
+      g.beginPath();
+      g.arc(regions[0].anchor.x*sx, regions[0].anchor.y*sy, 2.4, 0, Math.PI*2);
+      g.fill();
+    }
+  };
 
   /* ================= Modals ================= */
   var modalOverlay=document.getElementById("modal-overlay");
@@ -901,8 +2433,24 @@
       "<h2>Nasıl Oynanır?</h2>"+
       "<div class='legend-row'><span class='lic'>🟩</span><span><b>Boş bölge</b> — altın karşılığı ele geçirilir.</span></div>"+
       "<div class='legend-row'><span class='lic'>⚒️🚜🪓</span><span><b>Kaynak bölgesi</b> — maden, tarım veya orman olabilir; ele geçirince otomatik bina kurulur ve kalıcı olarak altın üretmeye devam eder.</span></div>"+
-      "<div class='legend-row'><span class='lic'>🪖</span><span><b>Düşman karakolu</b> — saldırırken kaç asker göndereceğini sen seçersin. Yetersiz gönderirsen saldırı başarısız olur ama savunmayı zayıflatırsın; fazla gönderirsen ele geçirince oraya garnizon bırakıp savunmayı güçlendirirsin.</span></div>"+
-      "<div class='legend-row'><span class='lic'>🧱</span><span><b>Duvarlı bölgeler</b> — sınırlarının çevresinde taş renkli bir halka görürsün. Normalden daha sağlam savunmaya sahiptir; büyük bir orduyla saldırırsan askerinin bir kısmını (yaklaşık her 50 askerden 1'i) duvarı aşarken kaybedersin.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🪖</span><span><b>Düşman karakolu</b> — saldırırken hem kaç asker göndereceğini hem <b>hangi saldırı tipini</b> kullanacağını sen seçersin. Yetersiz gönderirsen saldırı başarısız olur ama garnizonu zayıflatırsın.</span></div>"+
+      "<hr>"+
+      "<div class='legend-row'><span class='lic'>🧠</span><span><b>Asıl mesele burada:</b> her bölgenin tahkimatı farklı saldırıya farklı tepki verir. Yanlış tipi seçersen aynı bölge için <b>üç katı asker</b> harcarsın.</span></div>"+
+      "<div class='legend-row'><span class='lic'>⚔️</span><span><b>Piyade Taarruzu</b> — bedava. Ama <b>Duvar ×1.8</b> ve <b>Tüfek Mevzisi ×1.5</b> savunmayı katlar. Tahkimatsız hedefler için.</span></div>"+
+      "<div class='legend-row'><span class='lic'>💣</span><span><b>Topçu Barajı</b> — 40💰, kendi <b>Fabrika</b>nı gerektirir. <b>Duvarı tamamen etkisiz kılar</b> ve fethedince yıkar. Bedeli: ganimetin yarısı kül olur.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🛩️</span><span><b>Hava Akını</b> — 60💰, kendi <b>Fabrika</b>nı gerektirir. Duvarın ve siperin <b>üstünden uçar</b>, ganimete zarar vermez. Ama <b>Hava Savunması ×2.4</b> ile karşılaşırsa ordunu kaybedersin.</span></div>"+
+      "<div class='legend-row'><span class='lic'>☢️</span><span><b>Nükleer füzeler</b> — alt tepsideki kırmızı bölümde. Kartı sürükleyip <b>haritada istediğin bölgeye</b> bırak; komşuluk şartı yoktur, menzil serbesttir. Üç başlık üç farklı patlama alanı demek: <b>Taktik</b> tek bölge, <b>Stratejik</b> hedef + komşuları, <b>Termonükleer</b> iki halka. Sürüklerken alan haritada kırmızı boyanır.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🔥</span><span><b>Füze ne yapar</b> — bölgeyi <em>ele geçirmez</em>, yakar: garnizonu eritir, tahkimatı yıkar ve toprağı "+SCORCH_TURNS+" tur üretimsiz bırakır. <b>Kent</b> binası gerektirir. Dağlar patlamayı keser — ve alana giren <b>kendi bölgelerin de yanar</b>, o yüzden sürüklerken çıkan uyarıya bak.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🛡️</span><span><b>SAM önlemesi</b> — düşmanın <b>Hava Savunması</b> aynı zamanda füze kalkanıdır. Hedefin kendisinde ya da komşusunda bir SAM varsa füzen havada vurulur; ama SAM bu işte <b>tükenir</b>, yani ikinci füzen geçer. <b>Termonükleer</b> tek SAM'i doyurur — onu durdurmak için iki SAM gerekir. Sürüklerken kaç SAM olduğunu görürsün, kör atış yapmazsın.</span></div>"+
+      "<div class='legend-row'><span class='lic'>📊</span><span><b>Saldırı oranı</b> — kaç asker göndereceğini sayıyla değil <b>yüzdeyle</b> seçersin. Ordun büyüdükçe aynı oran daha çok asker demek. \"Tam yetecek\" düğmesi, seçtiğin saldırı tipi için gereken en düşük oranı bulur.</span></div>"+
+      "<div class='legend-row'><span class='lic'>👥</span><span><b>Asker tavanı</b> — HUD'da <b>asker/tavan</b> olarak görünür. Tavan fethettiğin toprakla ve <b>Kent</b>lerle yükselir; tavana yaklaştıkça üretim yavaşlar. Sonsuz yığınak yok: daha büyük ordu için ya toprak ya Kent.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🚚</span><span><b>Ticaret geliri</b> — işleyen her Fabrika–Kent konvoy hattı tur başına <b>+4 altın</b> getirir. Hattın ucundaki bölge nükleer vurulursa konvoy durur ve gelir kesilir.</span></div>"+
+      "<div class='legend-row'><span class='lic'>❓</span><span><b>Keşif</b> — bir bölgenin tahkimatını ancak <b>sınırına dayandığında</b> görebilirsin. Uzaktaki bölgeye körlemesine saldırmak kumardır; genişleme sıran da bir karardır.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🪖</span><span><b>Takviye gönder</b> — kendi bölgene dokunup ordundan asker aktarabilirsin. Garnizonu güçlenen bölge baskınları daha kolay atlatır; boş bırakılan sınır bölgesi zamanla düşer. <b>Başkentin de dahil</b> — orası düşerse sefer biter.</span></div>"+
+      "<hr>"+
+      "<div class='legend-row'><span class='lic'>🧭</span><span><b>Kuşatma</b> — bir bölgeye <em>kaç komşundan</em> dayandığın savaşı etkiler. Tek cepheden saldırmak normal; iki komşundan birden dayanırsan savunma <b>×0.82</b>'ye, üçten <b>×0.68</b>'e düşer. Saldırmadan önce çevresini almak bilinçli bir yol olur.</span></div>"+
+      "<div class='legend-row'><span class='lic'>⛰️</span><span><b>Dağlık arazi</b> — bir bölgenin dağ komşuları arttıkça savunması güçlenir (her dağ +%10, tavan +%30). Doğu illeri bu yüzden gerçekten zor: yaklaşma yolu az, savunan dar geçidi tutar.</span></div>"+
+      "<hr>"+
       "<div class='legend-row'><span class='lic'>⛰️🌊</span><span><b>Dağ / deniz</b> — geçilemez, etrafından dolaşman gerekir.</span></div>"+
       "<div class='legend-row'><span class='lic'>👑</span><span><b>Düşman başkenti</b> — ele geçirirsen oyunu kazanırsın!</span></div>"+
       "<hr>"+
@@ -910,9 +2458,10 @@
       "<div class='legend-row'><span class='lic'>📈</span><span>Bölge sayın arttıkça asker üretim hızın da otomatik olarak artar.</span></div>"+
       "<div class='legend-row'><span class='lic'>🤖</span><span>Haritada kolay / orta / zor seviyesinde <b>3 düşman botu</b> var. Zamanla boş toprakları ele geçirip güçlenirler — ama asla maden/tarım/orman bölgelerine dokunmazlar, o bölgeler her zaman sana açık kalır.</span></div>"+
       "<div class='legend-row'><span class='lic'>👆</span><span>Alttaki <b>bina panelinden</b> bir kartı basılı tutup kendi bölgene sürükle ve bırak — inşaat orada başlar.</span></div>"+
-      "<div class='legend-row'><span class='lic'>🔢</span><span><b>Tüfek / Duvar / Topçu / Hava Savunması</b> — kendi bölgene inşa ederek savunmasını güçlendirir. Haritada bina simgesi yerine, o bölgenin toplam savunma gücünü gösteren bir sayı görürsün.</span></div>"+
-      "<div class='legend-row'><span class='lic'>🏭🏙️</span><span><b>Fabrika / Kent</b> — altın ve asker üretimini artırır.</span></div>"+
-      "<div class='legend-row'><span class='lic'>⚠️</span><span>Düşman zaman zaman sınır bölgelerine baskın yapar — savunman zayıfsa kayıp verirsin.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🛡️</span><span><b>Savunman da aynı kurala tabi.</b> Düşman baskınları da üç tipten birini seçer ve zamanla <b>senin zayıf noktanı bulmakta ustalaşır</b>. Bir bölgeye tek bina kurabildiğin için asıl soru şu: hangi sınırı neyle kapatacaksın? Her yere aynı binayı dikersen düşman onu aşan tipi bulur.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🏭</span><span><b>Fabrika saldırı kapısı da açar</b> — Fabrikan yoksa ne Topçu Barajı ne Hava Akını yapabilirsin. Sadece piyadeyle kalırsın, yani her duvar sana ×1.8 olur. Ekonomi binası aynı zamanda taarruz yatırımıdır.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🏭🏙️</span><span><b>Fabrika / Kent</b> — altın ve asker üretimini artırır. İkisine birden sahipsen aralarında <b>işçi konvoyu</b> işlemeye başlar; hat haritada görünür. Nükleer vurulan bölgeye giden hat, toprak soğuyana kadar durur.</span></div>"+
+      "<div class='legend-row'><span class='lic'>🏗️</span><span><b>Rakip de ilerler</b> — botlar sadece boş toprağa yayılmakla kalmaz, zamanla bölgelerine <b>savunma yapısı diker</b> ve önce sana komşu olan cepheleri tahkim eder. Bugün piyadeyle alabildiğin bir bölge, birkaç tur sonra duvarlı olabilir: geciktiğin her cephe pahalılaşır.</span></div>"+
       "<button id='start-btn'>"+(isFirstTime?"Anladım, Başla":"Kapat")+"</button>";
     modalOverlay.classList.add("show");
     document.getElementById("start-btn").addEventListener("click", function(){
@@ -921,8 +2470,26 @@
     });
   }
 
+  function showDefeat(){
+    state.gameOver=true;
+    clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
+    modalBox.className="modal-box defeat";
+    modalBox.innerHTML =
+      "<div class='big'>🏳️💥</div>"+
+      "<h2>Başkentin Düştü</h2>"+
+      "<div class='sheet-sub' style='margin-bottom:0;color:var(--text-dim)'>"+
+        state.turn+" tur dayandın. Sınır bölgelerini savunmasız bırakmak pahalıya patladı — "+
+        "tahkimat kurmadığın her cephe düşmanın giriş kapısıydı.</div>"+
+      "<button id='restart-btn'>Tekrar Dene</button>";
+    modalOverlay.classList.add("show");
+    document.getElementById("restart-btn").addEventListener("click", function(){
+      location.reload();
+    });
+  }
+
   function showVictory(){
     state.gameOver=true;
+    bfStatBump("kazanildi");
     clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
     modalBox.className="modal-box victory";
     modalBox.innerHTML =
@@ -941,10 +2508,85 @@
     showInstructions(false);
   });
 
+  /* ================= Alt sekme çubuğu =================
+     Kart tepsisinin yerini alan kompakt HUD: Harita (varsayılan) / Ordu /
+     Şehirler / Diplomasi / Menü. Menü, bina-füze kartlarını içeren paneli
+     açar; diğerleri mevcut sheet mekanizmasını (openSheet) yeniden kullanan
+     salt-bilgi ekranları — hiçbiri yeni bir gameplay sistemi icat etmiyor. */
+  var bottombar=document.getElementById("bottombar");
+  var menuSheet=document.getElementById("menu-sheet");
+
+  var hudBottom=document.getElementById("hud-bottom");
+  function setActiveTab(key){
+    bottombar.querySelectorAll(".bb-tab").forEach(function(b){
+      b.classList.toggle("active", b.dataset.bb===key);
+    });
+  }
+  function closeMenuSheet(){
+    menuSheet.classList.remove("open");
+    hudBottom.style.opacity="";
+    hudBottom.style.pointerEvents="";
+  }
+
+  function openArmySheet(){
+    var uretim=0;
+    regions.forEach(function(r){
+      if(r.owner==="player" && r.building && BUILDINGS[r.building].army && !isScorched(r)) uretim+=BUILDINGS[r.building].army;
+    });
+    var html=
+      "<div class='stat-row'><span>Mevcut ordu</span><b>"+state.army+"</b></div>"+
+      "<div class='stat-row'><span>Asker tavanı</span><b>"+state.maxArmy+"</b></div>"+
+      "<div class='stat-row'><span>Bina üretimi / tur</span><b>+"+uretim+"</b></div>"+
+      "<div class='stat-row'><span>Altın / tur</span><b>"+state.gold+"</b></div>";
+    openSheet("🪖","Ordu","", html+"<button class='action-btn' id='bb-sheet-close'><span><span class='a-name'>Kapat</span></span></button>");
+    document.getElementById("bb-sheet-close").addEventListener("click", closeSheet);
+  }
+
+  function openCitiesSheet(){
+    var owned=regions.filter(function(r){ return r.owner==="player"; });
+    var html=owned.map(function(r){
+      var bina = r.building ? BUILDINGS[r.building].name : (r.type==="capital" ? "Başkent" : "—");
+      return "<button class='action-btn' data-rid='"+r.id+"'><span><span class='a-name'>"+r.name+"</span>"+
+        "<span class='a-desc'>"+bina+"</span></span></button>";
+    }).join("");
+    openSheet("🏙️","Şehirler", owned.length+" bölge senin kontrolünde", html);
+    document.querySelectorAll("#sheet-actions [data-rid]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var r=regions[parseInt(btn.dataset.rid,10)];
+        closeSheet();
+        if(r) centerOnAnchor(r.anchor);
+      });
+    });
+  }
+
+  bottombar.addEventListener("click", function(e){
+    var btn=e.target.closest(".bb-tab");
+    if(!btn) return;
+    var key=btn.dataset.bb;
+    if(key==="menu"){
+      var willOpen=!menuSheet.classList.contains("open");
+      menuSheet.classList.toggle("open", willOpen);
+      setActiveTab(willOpen ? "menu" : "map");
+      // Menü açıkken "Bölge Kontrolü" şeridi tepsiyle çakışıyor, geçici gizle.
+      hudBottom.style.opacity=willOpen ? "0" : "";
+      hudBottom.style.pointerEvents=willOpen ? "none" : "";
+      return;
+    }
+    closeMenuSheet();
+    setActiveTab(key);
+    if(key==="army") openArmySheet();
+    else if(key==="cities") openCitiesSheet();
+    else if(key==="diplomacy") showToast("🤝 Diplomasi sistemi henüz yok — yakında.");
+  });
+
   /* ================= Init ================= */
   generateWorld();
   drawMap();
   renderBuildTray();
-  showInstructions(true);
+  // Talimat modalı artık sayfa yüklenir yüklenmez değil, oyuncu açılış
+  // ekranından "Seferi Başlat"a bastığında açılıyor (bkz. lobby.js) —
+  // #modal-overlay artık #app'in dışında (mağaza da kullanıyor), o yüzden
+  // #app gizliyken otomatik gösterilirse açılış ekranının üstüne biner.
+  window.__bfShowInstructions=function(){ showInstructions(true); };
 
 })();

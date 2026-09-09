@@ -3,31 +3,118 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Bölge Fatihi — Prototip</title>
+<title>Bölge Fatihi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="app">
+
+<!-- ======= Açılış — bir "oyun ekranı", dashboard değil ======= -->
+<div id="lobby">
+  <canvas id="splash-map" class="splash-map"></canvas>
+  <div class="splash-vignette"></div>
+
+  <div class="splash">
+    <svg class="splash-mark" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4">
+      <path d="M16 3 L27 7 V16 C27 23 22 27.5 16 29.5 C10 27.5 5 23 5 16 V7 Z"/>
+      <path d="M16 3 V29.5 M9 11 H23 M9 18 H23" stroke-width="1"/>
+    </svg>
+    <div class="splash-title">BÖLGE FATİHİ</div>
+    <p class="splash-stat" id="splash-stat" hidden></p>
+
+    <button class="splash-play" id="play-campaign">SEFERİ BAŞLAT</button>
+
+    <div class="splash-locked-row">
+      <span>Çok Oyunculu · Yakında</span>
+      <span>Sınırsız Harita · Yakında</span>
+    </div>
+
+    <button class="splash-link" id="open-store">Mağaza</button>
+  </div>
+
+  <span class="splash-version">v0.1</span>
+</div>
+
+<!-- Mağaza — mevcut modal sistemi yeniden kullanılıyor, ayrı bir dashboard sayfası değil -->
+<template id="store-template">
+  <h2>Mağaza</h2>
+  <div class="store-list">
+    <div class="store-item"><span>🎨</span><div><b>Cephe Renkleri</b><small>Alternatif komutanlık paletleri</small></div><em>YAKINDA</em></div>
+    <div class="store-item"><span>🗺️</span><div><b>Harita Temaları</b><small>Farklı arazi ve atmosfer görünümleri</small></div><em>YAKINDA</em></div>
+    <div class="store-item"><span>🎞️</span><div><b>Hareketli Arka Planlar</b><small>Menüde oynayan animasyonlu sahneler</small></div><em>YAKINDA</em></div>
+    <div class="store-item"><span>🔊</span><div><b>Ses Paketi</b><small>Saldırı, fetih ve tur geçişleri için tam ses</small></div><em>YAKINDA</em></div>
+  </div>
+  <p class="sheet-sub" style="margin-top:12px">Hiçbir ürün satın alınamaz — Bölge Fatihi şu an tamamen ücretsiz.</p>
+  <button class="action-btn" id="store-close"><span><span class="a-name">Kapat</span></span></button>
+</template>
+
+<!-- ======= Oyun Ekranı ======= -->
+<div id="app" hidden>
 
   <div id="hud">
-    <div class="title-row">
-      <h1>⛨ BÖLGE <span>FATİHİ</span></h1>
-      <button id="info-btn">i</button>
+    <div class="hud-pill">
+      <div class="hud-stat gold"><span class="hud-ico">🪙</span><span class="hud-val-row"><span class="hud-val" id="gold-val">0</span><span id="gold-popup-zone"></span></span></div>
+      <div class="hud-sep"></div>
+      <div class="hud-stat army"><span class="hud-ico">⚔</span><span class="hud-val" id="army-val">0/0</span></div>
+      <div class="hud-sep"></div>
+      <div class="hud-stat turn"><span class="hud-ico">◉</span><span class="hud-val" id="turn-val">YIL 2026 · Ç1</span></div>
     </div>
-    <div class="stats-row">
-      <div class="stat gold"><span class="label">ALTIN</span><span class="value-row"><span class="value" id="gold-val">0</span><span id="gold-popup-zone"></span></span></div>
-      <div class="stat army"><span class="label">ASKER</span><span class="value" id="army-val">0</span></div>
-      <div class="stat turn"><span class="label">TUR</span><span class="value" id="turn-val">0</span></div>
-    </div>
+    <button id="info-btn">i</button>
   </div>
 
   <div id="map-wrap">
+    <div id="lb-panel">
+      <button id="lb-toggle" aria-expanded="false">
+        <span class="lb-toggle-ico">🏆</span>
+        <span id="lb-toggle-txt">Sıralama</span>
+        <span class="lb-caret">▾</span>
+      </button>
+      <div id="lb-dropdown">
+        <div class="lb-head lb-grid"><span></span><span></span><span>Ad</span><span>🏔</span><span>🪖</span><span>💰</span></div>
+        <div id="lb-body"></div>
+      </div>
+    </div>
     <canvas id="map"></canvas>
   </div>
 
-  <div id="build-tray"></div>
+  <div id="hud-bottom">
+    <span class="hud-ico">🗺</span>
+    <span>Bölge Kontrolü</span>
+    <div class="hud-bottom-track"><div class="hud-bottom-fill" id="control-fill"></div></div>
+    <span class="hud-val" id="control-val">0%</span>
+  </div>
 
-  <div id="footnote">Bina kartını sürükleyip bir bölgeye bırak · ya da bölgeye dokun</div>
+  <!-- Menü sekmesinin açtığı yüzen panel: bina/füze kartları + ipucu -->
+  <div id="menu-sheet">
+    <div id="build-tray"></div>
+    <p id="footnote">Bina kartını kendi bölgene sürükle · ☢ füzeyi istediğin yere · ya da bölgeye dokun</p>
+  </div>
+
+  <!-- Kompakt alt sekme çubuğu: mobil strateji oyunu HUD'ı, kart tepsisi değil -->
+  <nav id="bottombar">
+    <button class="bb-tab active" data-bb="map">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6 L9 4 L15 6 L21 4 V18 L15 20 L9 18 L3 20 Z"/><path d="M9 4 V18 M15 6 V20"/></svg>
+      <span>Harita</span>
+    </button>
+    <button class="bb-tab" data-bb="army">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 3 L20 6.5 V12 C20 17 16.5 20 12 21.5 C7.5 20 4 17 4 12 V6.5 Z"/><path d="M9 12 L11 14 L15.5 9" stroke-width="1.6"/></svg>
+      <span>Ordu</span>
+    </button>
+    <button class="bb-tab" data-bb="cities">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 21 V10 L7 7 V21 M7 21 V13 L12 10 V21 M12 21 V7 L17 4 V21 M17 21 V11 L21 9 V21 H3"/></svg>
+      <span>Şehirler</span>
+    </button>
+    <button class="bb-tab" data-bb="diplomacy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 12 L7 8 L10 10.5 L14 7 L19 10 M2 12 V15 L7 18 M19 10 V14 L15 17"/><path d="M9.5 10.5 L12.5 13"/></svg>
+      <span>Diplomasi</span>
+    </button>
+    <button class="bb-tab" data-bb="menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 7 H20 M4 12 H20 M4 17 H20"/></svg>
+      <span>Menü</span>
+    </button>
+  </nav>
 
   <div id="toast-zone"></div>
 
@@ -44,12 +131,14 @@
     <button id="sheet-close">Kapat</button>
   </div>
 
-  <div id="modal-overlay">
-    <div class="modal-box" id="modal-box"></div>
-  </div>
+</div>
 
+<!-- Açılıştan (mağaza) ve oyun içinden (talimat/zafer/yenilgi) ortak kullanılıyor -->
+<div id="modal-overlay">
+  <div class="modal-box" id="modal-box"></div>
 </div>
 
 <script src="game.js"></script>
+<script src="lobby.js"></script>
 </body>
 </html>

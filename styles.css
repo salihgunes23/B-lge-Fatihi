@@ -1108,3 +1108,77 @@ button.hud-stat:focus-visible{outline:2px solid var(--gold); outline-offset:-2px
 @media (prefers-reduced-motion: reduce){
   button.hud-stat, .raid-fill, #katman-secici .kt{transition:none;}
 }
+
+/* ---------- Lobi: devam düğmesi ---------- */
+.hero-btns{display:flex; flex-direction:column; gap:8px; align-items:stretch;}
+.btn-devam{
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  background:var(--panel-2); border:1px solid var(--gold); color:var(--gold);
+}
+.btn-devam em{
+  font-style:normal; font-size:10px; opacity:0.75; letter-spacing:0.04em;
+  font-family:var(--mono); color:var(--text-dim);
+}
+
+/* ---------- Komutan künyeleri ---------- */
+.cephe-unvan{
+  font-size:10px; color:var(--text-dim); font-family:var(--mono);
+  letter-spacing:0.08em; text-transform:uppercase;
+}
+.cephe-doktrin{font-size:11.5px; color:var(--gold); font-style:italic; margin:2px 0 4px;}
+.cephe-imza{font-size:10.5px; color:var(--text-dim); line-height:1.4; margin-bottom:9px;}
+
+/* ---------- Brifing ---------- */
+.brifing{
+  background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
+  padding:11px 12px; margin-bottom:14px;
+}
+.brf-bas{
+  font-family:var(--mono); font-size:9px; letter-spacing:0.16em; text-transform:uppercase;
+  color:var(--text-dim); margin-bottom:8px;
+}
+.brf-satir{display:flex; gap:9px; align-items:flex-start; margin-bottom:8px;}
+.brf-satir:last-child{margin-bottom:0;}
+.brf-nokta{width:9px; height:9px; border-radius:50%; flex-shrink:0; margin-top:4px;}
+.brf-govde{display:flex; flex-direction:column; gap:1px; min-width:0;}
+.brf-govde b{font-size:12.5px; color:var(--text);}
+.brf-govde em{
+  font-style:normal; font-size:9.5px; font-family:var(--mono); color:var(--gold);
+  letter-spacing:0.1em; text-transform:uppercase;
+}
+.brf-imza{font-size:11px; color:var(--text-dim); line-height:1.4;}
+
+/* ---------- Sonuç ekranı ---------- */
+.sonuc-gerekce{
+  font-size:13px; line-height:1.5; color:var(--text); text-align:left;
+  background:var(--panel-2); border-left:3px solid var(--gold);
+  padding:10px 12px; border-radius:0 7px 7px 0; margin:6px 0 4px;
+}
+.modal-box.defeat .sonuc-gerekce{border-left-color:var(--danger);}
+.donum{margin-top:12px; text-align:left;}
+.donum-bas{
+  font-family:var(--mono); font-size:9px; letter-spacing:0.16em; text-transform:uppercase;
+  color:var(--text-dim); margin-bottom:7px; padding-top:10px; border-top:1px solid var(--line);
+}
+.donum-satir{
+  display:flex; gap:9px; font-size:11.5px; line-height:1.4; color:var(--text-dim);
+  padding:5px 0 5px 8px; border-left:2px solid var(--line); margin-bottom:3px;
+}
+.donum-satir.sv3{border-left-color:var(--danger); color:var(--text);}
+.donum-satir.sv4{border-left-color:var(--gold); color:var(--text);}
+.modal-box button.ikincil{
+  background:none; border:1px solid var(--line); color:var(--text-dim);
+  width:100%; margin-top:8px; padding:10px; border-radius:8px; cursor:pointer;
+  font-size:13px; font-family:inherit;
+}
+.modal-box button.ikincil:hover{color:var(--text);}
+
+/* ---------- Panel içi eylem düğmeleri (davranış kancaları) ---------- */
+/* Bu sınıflar JS tarafından üretiliyor; görünümleri .action-btn'den gelir,
+   burada yalnızca rollerini ayıran vurgular tanımlı. */
+.kesif-btn{border-color:var(--accent-color); background:var(--celik-zemin, rgba(14,165,233,0.10));}
+.kesif-btn .a-name{color:var(--accent-color);}
+.yikim-btn{border-color:var(--danger); background:var(--danger-dim);}
+.build-btn .a-name{align-items:center;}
+.ikmal-satir .a-cost{font-weight:700;}
+.gecit-satir .a-name{letter-spacing:0.02em;}

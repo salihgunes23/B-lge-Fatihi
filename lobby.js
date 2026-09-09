@@ -241,7 +241,29 @@
   document.querySelectorAll("[data-soon]").forEach(function(b){
     b.addEventListener("click", function(){ yakinda(b.dataset.soon); });
   });
+  /* Kaydedilmiş sefer varsa lobide "Devam et" görünür; yoksa düğme hiç
+     yer kaplamaz. Sahte/kilitli seçenek göstermiyoruz (şartname B26). */
+  (function devamKur(){
+    var btn=document.getElementById("play-continue");
+    var ozetEl=document.getElementById("devam-ozet");
+    if(!btn || !window.__bfKayitOzet) return;
+    var ozet=window.__bfKayitOzet();
+    if(!ozet) return;
+    if(ozetEl) ozetEl.textContent=ozet.mod+" · "+ozet.tur+". tur · "+ozet.il+" il";
+    btn.hidden=false;
+    btn.addEventListener("click", function(){
+      lobby.classList.add("leaving");
+      setTimeout(function(){
+        lobby.hidden=true; app.hidden=false;
+        if(raf){ cancelAnimationFrame(raf); raf=null; }
+        if(window.__bfOnShow) window.__bfOnShow();
+        if(window.__bfDevamEt) window.__bfDevamEt();
+      },190);
+    });
+  })();
+
   document.getElementById("play-campaign").addEventListener("click", function(){
+    try{ localStorage.removeItem("bf_sefer"); }catch(e){}
     lobby.classList.add("leaving");
     setTimeout(function(){
       lobby.hidden=true; app.hidden=false;

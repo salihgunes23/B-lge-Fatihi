@@ -2,7 +2,9 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- Yakınlaştırma engellenmiyor: az gören oyuncu arayüzü büyütebilmeli
+     (WCAG 1.4.4). Haritanın kendi pan/zoom sistemi bundan bağımsız çalışır. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Bölge Fatihi</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -58,7 +60,12 @@
               <h2 id="hero-n">Geçit Seferi</h2>
               <p id="hero-d"></p>
             </div>
-            <button class="btn btn-go" id="play-campaign">BAŞLAT</button>
+            <div class="hero-btns">
+              <button class="btn btn-go" id="play-campaign">BAŞLAT</button>
+              <button class="btn btn-devam" id="play-continue" hidden>
+                <span>DEVAM ET</span><em id="devam-ozet"></em>
+              </button>
+            </div>
           </div>
         </div>
         <div class="subrow" id="subrow"></div>

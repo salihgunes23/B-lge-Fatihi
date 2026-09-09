@@ -209,4 +209,107 @@ t('Kritik bildirimler kroniğe yazılıyor, mikro bildirimler yazılmıyor', () 
   esit(T.olaylar().length, once + 1, 'seviye 3 kroniğe girmeli');
 });
 
+/* ---------- T-26..T-28 · kayıt ve tohum ---------- */
+t('T-28 aynı tohum aynı haritayı üretiyor', () => {
+  const T = yeni();
+  const imza = r => r.map(x => x.name + ':' + x.type + ':' + x.pixels.length).join('|');
+  const tohum = 123456;
+  T.tohumAyarla(tohum); T.dunyaSifirla(); T.generateWorld();
+  const a = imza(T.regions);
+  T.tohumAyarla(tohum); T.dunyaSifirla(); T.generateWorld();
+  const b = imza(T.regions);
+  esit(a, b, 'aynı tohum farklı harita üretti');
+  dogru(a.length > 100, 'harita boş');
+});
+
+t('T-28b farklı tohum farklı harita üretiyor', () => {
+  const T = yeni();
+  const imza = r => r.map(x => x.name + ':' + x.type).join('|');
+  T.tohumAyarla(1); T.dunyaSifirla(); T.generateWorld();
+  const a = imza(T.regions);
+  T.tohumAyarla(2); T.dunyaSifirla(); T.generateWorld();
+  dogru(a !== imza(T.regions), 'farklı tohum aynı haritayı verdi');
+});
+
+t('T-26 kayıt yaz/oku çevrimi kayıpsız', () => {
+  const T = yeni();
+  T.state.started = true;
+  T.state.gold = 777; T.state.army = 42; T.state.turn = 33;
+  T.regions[5].owner = 'player'; T.regions[5].garrison = 9;
+  dogru(T.kaydet(), 'kayıt yazılamadı');
+
+  const k = T.kayitOku();
+  dogru(!!k, 'kayıt okunamadı');
+  esit(k.s.gold, 777); esit(k.s.army, 42); esit(k.s.turn, 33);
+
+  // Durumu boz, sonra kayıttan geri yükle
+  T.state.gold = 0; T.state.army = 0; T.state.turn = 0;
+  dogru(T.kayittanYukle(k), 'yükleme başarısız');
+  esit(T.state.gold, 777, 'altın geri gelmedi');
+  esit(T.state.turn, 33, 'tur geri gelmedi');
+  esit(T.regions[5].owner, 'player', 'bölge sahipliği geri gelmedi');
+  esit(T.regions[5].garrison, 9, 'garnizon geri gelmedi');
+});
+
+t('T-27 bozuk kayıt sessizce temizleniyor', () => {
+  const w = oyunuYukle();
+  w.localStorage.setItem('bf_sefer', '{bu bozuk json');
+  esit(w.__bfTest.kayitOku(), null, 'bozuk kayıt null dönmedi');
+  esit(w.localStorage.getItem('bf_sefer'), null, 'bozuk kayıt silinmedi');
+});
+
+t('T-27b eski sürümlü kayıt reddediliyor', () => {
+  const w = oyunuYukle();
+  w.localStorage.setItem('bf_sefer', JSON.stringify({surum: 0, b: [{}], s: {}}));
+  esit(w.__bfTest.kayitOku(), null, 'eski sürüm kabul edildi');
+});
+
+t('Kayıt boyutu 60 KB altında', () => {
+  const T = yeni();
+  T.state.started = true;
+  const boyut = JSON.stringify(T.kayitPaketle()).length;
+  dogru(boyut < 60000, 'kayıt çok büyük: ' + boyut + ' bayt');
+});
+
+/* ---------- Yeni oynanış yüzeyleri ---------- */
+t('Bina yıkımı yatırımın %40\'ını iade ediyor', () => {
+  const T = yeni();
+  const r = T.regions.find(x => x.owner === 'player' && x.type !== 'capital') ||
+            (() => { const x = T.regions[3]; x.owner = 'player'; x.type = 'empty'; return x; })();
+  r.building = 'kent';
+  const once = T.state.gold;
+  T.tryDemolish(r);
+  esit(r.building, null, 'bina yıkılmadı');
+  esit(T.state.gold, once + Math.floor(T.BUILDINGS.kent.cost * 0.4), 'iade yanlış');
+});
+
+t('Baskın dayanımı en zayıf saldırı tipine göre hesaplanıyor', () => {
+  const T = yeni();
+  const r = T.regions[3];
+  r.owner = 'player'; r.type = 'empty'; r.garrison = 0; r.defenses = [];
+  const d = T.baskinDayanimi(r);
+  const enDusuk = Math.min(...Object.keys(T.ATTACKS).map(k => T.defenseAgainst(r, k, 'enemy').value));
+  esit(d.deger, enDusuk, 'en zayıf tip seçilmedi');
+});
+
+t('Bina açıklamaları sabitlerden türetiliyor', () => {
+  const T = yeni();
+  const metin = T.binaAciklama('duvar');
+  dogru(metin.includes('+' + T.BUILDINGS.duvar.def), 'savunma puanı metinde yok');
+  dogru(metin.includes(String(T.ATTACKS.piyade.vs.duvar).replace('.', ',')), 'çarpan metinde yok');
+  dogru(T.binaAciklama('fabrika').includes(T.ATTACKS.bombardiman.name), 'açtığı saldırı yazmıyor');
+});
+
+t('Katman kategorileri geçerli değer dönüyor', () => {
+  const T = yeni();
+  ['sahiplik', 'ikmal', 'rota', 'gecit', 'tehdit'].forEach(k => {
+    T.katmanAyarla(k);
+    T.regions.forEach(r => {
+      const c = T.katmanKategori(r);
+      if (k === 'sahiplik') { if (c !== null) throw new Error('sahiplikte katman rengi olmamalı'); }
+      else if (c === null || typeof c !== 'string') throw new Error(k + ' katmanında geçersiz kategori');
+    });
+  });
+});
+
 bitir();

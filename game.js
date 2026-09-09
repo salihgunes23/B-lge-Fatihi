@@ -253,6 +253,27 @@
   // mor=orta, kırmızı=zor — hangi cephenin ne kadar tehlikeli olduğu renkten
   // bile anlaşılsın diye harita paletinden bağımsız, kendi ailesinde tutarlı.
   var BOT_COLORS={kolay:"#a8863f", orta:"#7a5a94", zor:"#b5432f"};
+
+  /* ================= KOMUTANLAR =================
+     Anlatı katmanı (şartname §13). Üç rakip; her biri bir bot zorluğuna ve
+     bir davranış imzasına bağlı. Amaç oyunu RPG'ye çevirmek değil, cepheye
+     bir yüz vermek: oyuncu "orta bot" ile değil, rotasını hedefleyen
+     Kervanbaşı ile savaştığını bilsin. Metin bütçesi dar tutuluyor. */
+  var KOMUTANLAR={
+    zor:  {ad:"Demirkapı", unvan:"Geçit Beyi",
+           doktrin:"Kapıyı tutan, şehri tutar.",
+           imza:"Geçitlere yönelir, aldığını tahkim eder, geri adım atmaz."},
+    orta: {ad:"Kervanbaşı", unvan:"Yol Emiri",
+           doktrin:"Ordu yürür, para koşar.",
+           imza:"Ticaret hattını hedefler; ateşkese en açık olan odur."},
+    kolay:{ad:"Yel", unvan:"Akıncı",
+           doktrin:"Hazırlanana kadar iş biter.",
+           imza:"Hızlı yayılır, tahkimatı zayıftır, erken baskın yapar."}
+  };
+  function komutan(bot){
+    return (bot && KOMUTANLAR[bot.difficulty]) || KOMUTANLAR.orta;
+  }
+  function cepheAdi(bot){ return komutan(bot).ad+" Cephesi"; }
   var BOSS_COLOR="#82283a";
 
   /* ================= Denge sabitleri (v0.2) =================
@@ -442,12 +463,38 @@
      oyun sessiz çalışır, hiçbir yerde hata vermez. */
   function ses(ad){ if(window.__bfSes) window.__bfSes(ad); }
 
-  function randInt(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
+  /* ================= TOHUMLANABİLİR RASTGELELİK =================
+     İki nedenle şart: (1) kaydedilen bir sefer, haritayı piksel piksel
+     saklamadan aynı haritayla geri yüklenebilsin; (2) denge çalışmasında
+     iki koşu karşılaştırılabilsin. Tohum verilmezse davranış eskisi gibi. */
+  var _tohum=null;
+  function tohumAyarla(t){ _tohum = (t===null||t===undefined) ? null : (t>>>0); }
+  function tohumAl(){ return _tohum; }
+  function rastgele(){
+    if(_tohum===null) return Math.random();
+    _tohum = (_tohum + 0x6D2B79F5) | 0;
+    var t = Math.imul(_tohum ^ (_tohum >>> 15), 1 | _tohum);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  function randInt(a,b){return Math.floor(rastgele()*(b-a+1))+a;}
   function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
   function clampByte(v){return Math.max(0,Math.min(255,Math.round(v)));}
   function dist2(ax,ay,bx,by){var dx=ax-bx, dy=ay-by; return dx*dx+dy*dy;}
 
   /* ================= World generation ================= */
+  /* Kayıttan devam ederken aynı harita yeniden üretilir; diziler kimliklerini
+     koruyarak boşaltılır (test dikişi ve kapanışlar referansı sürdürsün). */
+  function dunyaSifirla(){
+    regions.length=0;
+    landPixelsList.length=0;
+    pixelRegionId.length=0;
+    bots.length=0;
+    ilSirasi.length=0;
+    GECITLER.forEach(function(g){ g.regionId=-1; });
+  }
+
   function generateWorld(){
     var land=[];
     for(var y=0;y<GRID_H;y++){ land.push(new Array(GRID_W).fill(false)); }
@@ -506,8 +553,8 @@
     for(var y3=0;y3<GRID_H;y3++){
       for(var x3=0;x3<GRID_W;x3++){
         var k=komsuKara(x3,y3);
-        if(kopya[y3][x3]){ if(k<=2 && Math.random()<0.30) land[y3][x3]=false; }
-        else if(k>=4 && Math.random()<0.55){ land[y3][x3]=true; }
+        if(kopya[y3][x3]){ if(k<=2 && rastgele()<0.30) land[y3][x3]=false; }
+        else if(k>=4 && rastgele()<0.55){ land[y3][x3]=true; }
       }
     }
 
@@ -679,7 +726,7 @@
     // assign remaining region types
     for(var r2=2;r2<REGION_COUNT;r2++){
       var region=regions[r2];
-      var rnd=Math.random();
+      var rnd=rastgele();
       var gd = dist[r2]===Infinity ? 6 : dist[r2];
       if(rnd<0.11){
         region.type="obstacle"; region.owner="neutral";
@@ -733,7 +780,7 @@
     var enemyRegions=regions.filter(function(r){ return r.id!==1 && r.type==="enemy"; });
     if(!enemyRegions.length){ bots=[]; return; }
     var seedCount=Math.min(3, enemyRegions.length);
-    var shuffled=enemyRegions.slice().sort(function(){ return Math.random()-0.5; });
+    var shuffled=enemyRegions.slice().sort(function(){ return rastgele()-0.5; });
     var seeds=shuffled.slice(0, seedCount);
 
     var assign={};
@@ -755,7 +802,7 @@
       if(!(r.id in assign)) assign[r.id]=randInt(0,seedCount-1);
     });
 
-    var diffs=BOT_DIFF_KEYS.slice().sort(function(){ return Math.random()-0.5; });
+    var diffs=BOT_DIFF_KEYS.slice().sort(function(){ return rastgele()-0.5; });
     bots=[];
     for(var i=0;i<seedCount;i++){
       var diffKey=diffs[i % diffs.length];
@@ -799,7 +846,7 @@
   // Derinlere gidildikçe düşman daha iyi tahkim edilmiş olur.
   function rollDefenses(gd){
     var out=[];
-    var count = Math.random() < clamp(0.18+gd*0.09, 0.18, 0.72) ? (Math.random()<0.30 ? 2 : 1) : 0;
+    var count = rastgele() < clamp(0.18+gd*0.09, 0.18, 0.72) ? (rastgele()<0.30 ? 2 : 1) : 0;
     var pool=DEFENSIVE.slice();
     for(var i=0;i<count && pool.length;i++){
       out.push(pool.splice(randInt(0,pool.length-1),1)[0]);
@@ -911,7 +958,7 @@
         ownHit++;
       }
       // Merkez her şeyi siler; ilk halkada tahkimat yarı yarıya ayakta kalır.
-      if(h.ring===0 || (h.ring===1 && Math.random()<0.5)){
+      if(h.ring===0 || (h.ring===1 && rastgele()<0.5)){
         if(reg.defenses && reg.defenses.length){ reg.defenses=[]; razed++; }
         if(reg.building && DEFENSIVE.indexOf(reg.building)>=0){ reg.building=null; razed++; }
       }
@@ -1305,12 +1352,12 @@
     if(REDUCED) return;
     if(particles.length>MAX_PARTICLES) particles.splice(0, particles.length-MAX_PARTICLES);
     for(var i=0;i<count;i++){
-      var a=Math.random()*Math.PI*2, s=speed*(0.35+Math.random()*0.65);
+      var a=rastgele()*Math.PI*2, s=speed*(0.35+rastgele()*0.65);
       particles.push({
         x:cx, y:cy, vx:Math.cos(a)*s, vy:Math.sin(a)*s-speed*0.3,
-        life:life*(0.6+Math.random()*0.7), age:0,
+        life:life*(0.6+rastgele()*0.7), age:0,
         color:colors[randInt(0,colors.length-1)],
-        size:Math.random()<0.28?2:1
+        size:rastgele()<0.28?2:1
       });
     }
     startFX();
@@ -1409,7 +1456,7 @@
 
   function applyTransform(){
     var dx=0, dy=0;
-    if(shakeMag>0){ dx=(Math.random()*2-1)*shakeMag; dy=(Math.random()*2-1)*shakeMag; }
+    if(shakeMag>0){ dx=(rastgele()*2-1)*shakeMag; dy=(rastgele()*2-1)*shakeMag; }
     canvas.style.transform="translate("+(view.tx+dx).toFixed(2)+"px,"+(view.ty+dy).toFixed(2)+"px) scale("+view.scale.toFixed(3)+")";
   }
 
@@ -1597,8 +1644,8 @@
     // Kesik olmayan her hatta iki işçi, zıt yönlerde.
     workerRoutes.forEach(function(rt, ri){
       if(rt.durum==="kesildi" || rt.uzunluk<=0) return;
-      workers.push({route:ri, t:Math.random(), dir:1});
-      workers.push({route:ri, t:Math.random(), dir:-1});
+      workers.push({route:ri, t:rastgele(), dir:1});
+      workers.push({route:ri, t:rastgele(), dir:-1});
     });
     if(workers.length) startFX();
   }
@@ -1869,7 +1916,7 @@
       var sx=0, sy=0;
       owned.forEach(function(r){ sx+=r.anchor.x; sy+=r.anchor.y; });
       rows.push({
-        key:"bot"+bot.id, name:BOT_DIFF[bot.difficulty].label+" Cephesi", color:BOT_COLORS[bot.difficulty],
+        key:"bot"+bot.id, name:cepheAdi(bot), color:BOT_COLORS[bot.difficulty],
         bolge:owned.length, guc:bot.power, altin:null, altinBilinir:false,
         anchor:{x:sx/owned.length, y:sy/owned.length}
       });
@@ -2327,7 +2374,8 @@
       if(c.dag) konum += "<span class='ks kotu'>⛰ "+c.dag+" dağ · savunma ×"+c.arazi.toFixed(2)+"</span>";
       konum += "</div>";
       if(c.cephe<=1 && c.gecilirKomsu>1){
-        konum += "<div class='konum-ipucu'>Bu ile başka bir komşusundan da dayanırsan savunması ×0.82'ye düşer.</div>";
+        konum += "<div class='konum-ipucu'>Bu ile başka bir komşusundan da dayanırsan "+
+                 "savunması ×"+ondalik(KUSATMA[2])+"'ye düşer.</div>";
       }
       /* Kuşatma önerisi: hangi komşuyu alırsan bu hedef ucuzlar? Soyut bir
          ipucu değil, haritadaki gerçek il adıyla. */
@@ -3188,7 +3236,7 @@
     /* Phase 4: riskli hat bir tehdittir, sadece az kazandırmaz. Her riskli
        konvoy turda küçük bir ihtimalle vurulur ve yükünü kaybeder. Oyuncunun
        kararı: hattı koru mu, riski göze al mı? */
-    if(rd.riskli>0 && Math.random() < Math.min(0.35, 0.10*rd.riskli)){
+    if(rd.riskli>0 && rastgele() < Math.min(0.35, 0.10*rd.riskli)){
       var kayip=Math.min(state.gold, 6+randInt(0,8));
       if(kayip>0){
         state.gold-=kayip; state.konvoyKaybi+=kayip;
@@ -3245,6 +3293,7 @@
     invalidateRoutes();          // kavrulma süresi dolmuş olabilir
     if(net>0) showGoldPopup(net);
     gecitZaferKontrol();
+    if(state.turn % KAYIT_PERIYOT === 0) kaydet();
     drawMap();
   }
 
@@ -3336,7 +3385,7 @@
 
     var havuz=baskinHedefleri();
     var target=null, lastStand=false, icBaskin=false;
-    if(havuz.sinir.length && (!havuz.zayif.length || Math.random()<0.75)){
+    if(havuz.sinir.length && (!havuz.zayif.length || rastgele()<0.75)){
       target=havuz.sinir[randInt(0,havuz.sinir.length-1)];
     } else if(havuz.zayif.length){
       target=havuz.zayif[randInt(0,havuz.zayif.length-1)];
@@ -3363,7 +3412,7 @@
        yükselir (tavan %75 — kurduğun savunma hep bir şans taşır). */
     var smartChance=Math.min(0.75, 0.25+state.raidCount*0.05);
     var pick;
-    if(Math.random()<smartChance){
+    if(rastgele()<smartChance){
       var best=Infinity;
       ATTACK_KEYS.forEach(function(k){
         var v=defenseAgainst(target,k).value;
@@ -3434,7 +3483,7 @@
       addFloater(c.x, c.y-8, "BÖLGE DÜŞTÜ", "#e08a72");
       invalidateRoutes();
       bildir(gecitMi?4:3,
-        (gecitMi?"⛰ ":"🚨 ")+target.name+" düştü — "+
+        (gecitMi?"⛰ ":"🚨 ")+komutan(saldiranBot).ad+" "+target.name+"'i aldı — "+
         (icBaskin ? "ikmalsiz bıraktığın iç bölgeye sızdılar."
                   : "savunmasız sınır toprağı düşmanın eline geçti.")+
         (gecitMi?" Geçit elden çıktı.":""),
@@ -3463,7 +3512,7 @@
   function botFortify(bot, diff, owned){
     // Zor botlar daha sık ve daha çok tahkim eder.
     var chance = diff.reinforceStep*0.07;
-    if(Math.random()>chance) return false;
+    if(rastgele()>chance) return false;
 
     var cap = diff.reinforceStep>=3 ? 3 : (diff.reinforceStep>=2 ? 2 : 1);
     var adaylar=owned.filter(function(r){ return r.defenses.length<cap; });
@@ -3485,7 +3534,7 @@
 
     // Yalnızca görebildiğin tahkimattan haberin olur.
     if(isScouted(hedef)){
-      showToast("🏗️ Düşman "+BUILDINGS[yeni].name+" dikti — o cephe artık daha sert.");
+      showToast("🏗️ "+komutan(bot).ad+" "+hedef.name+"'e "+BUILDINGS[yeni].name+" dikti.");
     }
     return true;
   }
@@ -3507,7 +3556,7 @@
 
       if(botFortify(bot, diff, owned)) changed=true;
 
-      if(Math.random()<diff.expandChance){
+      if(rastgele()<diff.expandChance){
         var candidates=[];
         owned.forEach(function(r){
           r.neighbors.forEach(function(nid){
@@ -3534,7 +3583,7 @@
             return {r:c, p:p};
           });
           var toplamP=0; puanli.forEach(function(x){ toplamP+=x.p; });
-          var sec=Math.random()*toplamP, target=puanli[0].r;
+          var sec=rastgele()*toplamP, target=puanli[0].r;
           for(var pi=0; pi<puanli.length; pi++){
             sec-=puanli[pi].p;
             if(sec<=0){ target=puanli[pi].r; break; }
@@ -3544,7 +3593,9 @@
           target.botId=bot.id;
           // Geçit aldıysa daha sıkı tutuyor — oyuncu geri almak için bedel ödesin.
           target.defense=clamp(bot.power + randInt(-2,2) + (target.gecit?6:0), 3, 52);
-          if(target.gecit) showToast("⛰ "+target.gecit.ad+" düşman eline geçti.");
+          if(target.gecit){
+            bildir(4, "⛰ "+komutan(bot).ad+" "+target.gecit.ad+"'nı aldı — geçit ağında gedik açıldı.", "gecit");
+          }
           changed=true;
           invalidateRoutes();
         }
@@ -3604,6 +3655,112 @@
     };
   };
 
+  /* ================= KAYIT VE DEVAM =================
+     Şartname §16. Harita piksel piksel saklanmaz — tohumdan yeniden üretilir,
+     üstüne yalnızca değişen alanlar yazılır. Bozuk ya da eski sürümlü kayıt
+     sessizce temizlenir; oyun hiçbir durumda kayıt yüzünden engellenmez. */
+  var KAYIT_ANAHTAR="bf_sefer", KAYIT_SURUM=1, KAYIT_PERIYOT=10;
+
+  function kayitPaketle(){
+    return {
+      surum:KAYIT_SURUM,
+      zaman:Date.now(),
+      mod:activeMode,
+      tohum:state.tohum,
+      s:{
+        gold:state.gold, army:state.army, maxArmy:state.maxArmy, turn:state.turn,
+        raidCount:state.raidCount, ticaret:state.ticaret, konvoyKaybi:state.konvoyKaybi,
+        fetih:state.fetih, bakimToplam:state.bakimToplam, gecitSayaci:state.gecitSayaci,
+        lastExpansionBonus:state.lastExpansionBonus, olaylar:state.olaylar.slice(-20)
+      },
+      b:regions.map(function(r){
+        return {i:r.id, o:r.owner, t:r.type, g:r.garrison||0, y:r.building||null,
+                d:r.defense||null, f:(r.defenses||[]).slice(), k:r.kesif||0, c:r.scorched||0};
+      }),
+      bo:bots.map(function(b){ return {i:b.id, z:b.difficulty, g:b.power, a:b.ateskes||0}; })
+    };
+  }
+
+  function kaydet(){
+    if(!state.started || state.gameOver) return false;
+    try{
+      localStorage.setItem(KAYIT_ANAHTAR, JSON.stringify(kayitPaketle()));
+      return true;
+    }catch(e){ return false; }
+  }
+  function kaydiSil(){
+    try{ localStorage.removeItem(KAYIT_ANAHTAR); }catch(e){}
+  }
+  function kayitOku(){
+    var ham=null;
+    try{ ham=localStorage.getItem(KAYIT_ANAHTAR); }catch(e){ return null; }
+    if(!ham) return null;
+    try{
+      var k=JSON.parse(ham);
+      if(!k || k.surum!==KAYIT_SURUM || !k.b || !k.b.length || !k.s) { kaydiSil(); return null; }
+      return k;
+    }catch(e){ kaydiSil(); return null; }
+  }
+
+  /* Kayıttan seferi kur: tohumla aynı dünyayı üret, sonra değişenleri yaz. */
+  function kayittanYukle(k){
+    if(!k) return false;
+    try{
+      if(k.mod && MODES[k.mod]){
+        activeMode=k.mod;
+        LOOP.tick=MODES[k.mod].tick; LOOP.raid=MODES[k.mod].raid; LOOP.bot=MODES[k.mod].bot;
+      }
+      tohumAyarla(k.tohum);
+      dunyaSifirla();
+      generateWorld();
+      state.tohum=k.tohum;
+
+      Object.keys(k.s).forEach(function(alan){ state[alan]=k.s[alan]; });
+      state.olaylar=(k.s.olaylar||[]).slice();
+
+      k.b.forEach(function(kb){
+        var r=regions[kb.i];
+        if(!r) return;
+        r.owner=kb.o; r.type=kb.t; r.garrison=kb.g; r.building=kb.y;
+        if(kb.d!=null) r.defense=kb.d;
+        r.defenses=kb.f||[]; r.kesif=kb.k||0; r.scorched=kb.c||0;
+      });
+      (k.bo||[]).forEach(function(kbot){
+        var b=bots[kbot.i];
+        if(!b) return;
+        b.difficulty=kbot.z; b.power=kbot.g; b.ateskes=kbot.a||0;
+      });
+      // Bot sahipliği bölgelerden yeniden türetiliyor (kayıtta taşınmıyor).
+      regions.forEach(function(r){
+        if(r.owner==="enemy" && r.id!==1 && r.botId==null && bots.length){
+          r.botId=randInt(0,bots.length-1);
+        }
+      });
+      invalidateRoutes();
+      drawMap();
+      return true;
+    }catch(e){
+      kaydiSil();
+      return false;
+    }
+  }
+
+  /* Lobi bu iki kapıyı kullanıyor. */
+  window.__bfKayitOzet=function(){
+    var k=kayitOku();
+    if(!k) return null;
+    var il=k.b.filter(function(b){ return b.o==="player"; }).length;
+    return {mod:(MODES[k.mod]||{}).name||k.mod, tur:k.s.turn||0, il:il, zaman:k.zaman};
+  };
+  window.__bfDevamEt=function(){
+    var k=kayitOku();
+    if(!k) return false;
+    if(!kayittanYukle(k)) return false;
+    startLoops();
+    bildir(2, "📁 Sefer kaldığı yerden sürüyor — "+state.turn+". tur.");
+    return true;
+  };
+
   /* ================= Modals ================= */
   var modalOverlay=document.getElementById("modal-overlay");
   var modalBox=document.getElementById("modal-box");
@@ -3630,7 +3787,22 @@
     var h=[];
 
     /* --- Amaç: moda göre, sabit cümle değil --- */
-    h.push("<h2>Nasıl Oynanır</h2>");
+    h.push("<h2>"+(isFirstTime?"Sefer Brifingi":"Nasıl Oynanır")+"</h2>");
+
+    /* Brifing yalnızca sefere girerken: karşındakiler kim, ne yaparlar.
+       İki cümleyi geçmez (şartname §13 metin bütçesi). */
+    if(isFirstTime && bots.length){
+      h.push("<div class='brifing'>"+
+        "<div class='brf-bas'>Karşı cepheler</div>"+
+        bots.map(function(b){
+          var k=komutan(b);
+          return "<div class='brf-satir'>"+
+            "<span class='brf-nokta' style='background:"+BOT_COLORS[b.difficulty]+"'></span>"+
+            "<span class='brf-govde'><b>"+k.ad+"</b> <em>"+k.unvan+"</em>"+
+            "<span class='brf-imza'>"+k.imza+"</span></span></div>";
+        }).join("")+
+      "</div>");
+    }
     h.push("<div class='yd-hedef'>"+
       "<span class='yd-hedef-et'>Bu seferin amacı</span>"+
       "<b>"+zaferKunye()+"</b>"+
@@ -3761,44 +3933,69 @@
     "</div>";
   }
 
+  /* Sefer neden bitti? Uydurma bir cümle değil, seferin kendi verisinden
+     kuruluyor (şartname §26.9). */
+  function seferGerekce(kazandi){
+    var h=(MODES[activeMode]||{}).hedef||{tip:"baskent"};
+    var gd=gecitDurumu(), rd=rotaDurumu();
+    if(kazandi){
+      if(h.tip==="gecit"){
+        return "Geçit ağını "+(h.tut||GECIT_TUTMA)+" tur boyunca elinde tuttun: "+
+          gd.tut+"/"+gd.toplam+" geçit sende kaldı ve "+state.raidCount+" baskın bunu değiştiremedi.";
+      }
+      return "Düşman başkentini "+state.turn+". turda aldın; "+state.fetih+
+        " il fethettin ve "+state.raidCount+" baskını göğüsledin.";
+    }
+    var acikVardi=state.olaylar.filter(function(o){ return o.metin.indexOf("düştü")>=0 || o.metin.indexOf("aldı")>=0; }).length;
+    return "Başkentin "+state.turn+". turda düştü. "+
+      (acikVardi ? acikVardi+" bölgeni kaybettikten sonra savunacak hattın kalmamıştı."
+                 : "Başkentini garnizonsuz bırakmak seferi bitirdi.")+
+      (rd.kesildi ? " Son turlarda "+rd.kesildi+" ticaret hattın da kesikti." : "");
+  }
+
+  /* Seferin dönüm noktaları: kroniğin yalnızca en ağır beş kaydı. */
+  function donumNoktalari(){
+    var onemli=state.olaylar.filter(function(o){ return o.seviye>=3; }).slice(-5);
+    if(!onemli.length) return "";
+    return "<div class='donum'><div class='donum-bas'>Seferin dönüm noktaları</div>"+
+      onemli.map(function(o){
+        return "<div class='donum-satir sv"+o.seviye+"'><span class='kr-tur'>T"+o.tur+"</span>"+
+               "<span>"+o.metin+"</span></div>";
+      }).join("")+"</div>";
+  }
+
+  function sonucEkrani(kazandi, ikon, baslik){
+    clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
+    kaydiSil();                    // biten sefer devam ettirilemez
+    modalBox.className="modal-box "+(kazandi?"victory":"defeat");
+    modalBox.innerHTML =
+      "<div class='big'>"+ikon+"</div>"+
+      "<h2>"+baslik+"</h2>"+
+      "<div class='sonuc-gerekce'>"+seferGerekce(kazandi)+"</div>"+
+      seferRaporu()+
+      donumNoktalari()+
+      "<button id='restart-btn'>Yeni sefer</button>"+
+      "<button id='lobi-btn' class='ikincil'>Lobiye dön</button>";
+    modalOverlay.classList.add("show");
+    document.getElementById("restart-btn").addEventListener("click", function(){ location.reload(); });
+    document.getElementById("lobi-btn").addEventListener("click", function(){ location.reload(); });
+  }
+
   function showDefeat(){
+    if(state.gameOver) return;
     state.gameOver=true;
     ses("yenilgi");
-    clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
-    modalBox.className="modal-box defeat";
-    modalBox.innerHTML =
-      "<div class='big'>🏳️💥</div>"+
-      "<h2>Başkentin Düştü</h2>"+
-      "<div class='sheet-sub' style='margin-bottom:0;color:var(--text-dim)'>"+
-        state.turn+" tur dayandın. Sınır bölgelerini savunmasız bırakmak pahalıya patladı — "+
-        "tahkimat kurmadığın her cephe düşmanın giriş kapısıydı.</div>"+
-      seferRaporu()+
-      "<button id='restart-btn'>Tekrar Dene</button>";
-    modalOverlay.classList.add("show");
-    document.getElementById("restart-btn").addEventListener("click", function(){
-      location.reload();
-    });
+    olayEkle(4, "Sefer kaybedildi — başkent düştü.");
+    sonucEkrani(false, "🏳️💥", "Başkentin Düştü");
   }
 
   function showVictory(){
+    if(state.gameOver) return;
     state.gameOver=true;
     ses("zafer");
     bfStatBump("kazanildi");
-    clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
-    modalBox.className="modal-box victory";
-    modalBox.innerHTML =
-      "<div class='big'>🎉👑</div>"+
-      "<h2>Zaferi Kazandın!</h2>"+
-      "<div class='sheet-sub' style='margin-bottom:0;color:var(--text-dim)'>"+
-        ((MODES[activeMode]||{}).hedef||{}).tip==="gecit"
-          ? "Anadolu geçiş ağının çoğunluğu kontrol altında."
-          : ("Düşman başkentini "+state.turn+" turda fethettin.")+"</div>"+
-      seferRaporu()+
-      "<button id='restart-btn'>Tekrar Oyna</button>";
-    modalOverlay.classList.add("show");
-    document.getElementById("restart-btn").addEventListener("click", function(){
-      location.reload();
-    });
+    olayEkle(4, "Sefer kazanıldı.");
+    sonucEkrani(true, "🎉👑", "Zafer");
   }
 
   document.getElementById("info-btn").addEventListener("click", function(){
@@ -4111,10 +4308,13 @@
       }).length;
       return "<div class='cephe-kart"+(aktif?" ateskesli":"")+"'>"+
         "<div class='cephe-bas'><span class='cephe-nokta' style='background:"+BOT_COLORS[bot.difficulty]+"'></span>"+
-          "<b>"+BOT_DIFF[bot.difficulty].label+" Cephesi</b>"+
+          "<b>"+komutan(bot).ad+"</b><span class='cephe-unvan'>"+komutan(bot).unvan+"</span>"+
           (aktif?"<em class='cephe-rozet'>Ateşkes · "+kalan+" tur</em>":"")+"</div>"+
+        "<div class='cephe-doktrin'>“"+komutan(bot).doktrin+"”</div>"+
         "<div class='cephe-veri'>"+owned.length+" il · güç "+bot.power+" · "+
-          (temas? temas+" sınır teması" : "seninle teması yok")+"</div>"+
+          (temas? temas+" sınır teması" : "seninle teması yok")+" · "+
+          BOT_DIFF[bot.difficulty].label.toLocaleLowerCase("tr")+"</div>"+
+        "<div class='cephe-imza'>"+komutan(bot).imza+"</div>"+
         "<button class='action-btn "+(aktif||state.gold<bedel?"":"primary")+"' data-bot='"+bot.id+"'"+
           (aktif||state.gold<bedel?" disabled":"")+">"+
           "<span><span class='a-name'>"+(aktif?"Ateşkes sürüyor":"Ateşkes öner")+"</span>"+
@@ -4140,7 +4340,7 @@
         if(state.gold<bedel){ showToast("🪙 Yeterli altının yok."); return; }
         state.gold-=bedel;
         bot.ateskes=state.turn+10;
-        bildir(2, "🤝 "+BOT_DIFF[bot.difficulty].label+" Cephesi ile ateşkes kuruldu — 10 tur baskın yok.", "diplomasi");
+        bildir(2, "🤝 "+komutan(bot).ad+" ile ateşkes kuruldu — 10 tur baskın yok.", "diplomasi");
         closeSheet(); drawMap();
       });
     });
@@ -4210,14 +4410,14 @@
     modalBox.className="modal-box";
     modalBox.innerHTML =
       "<h2>Seferden çık</h2>"+
-      "<p class='quit-note'>Lobiye döneceksin. Bu seferin ilerlemesi kaydedilmez — "+
-      "yeni sefer sıfırdan üretilen bir haritada başlar. Sefer günlüğündeki "+
-      "toplamların yerinde kalır.</p>"+
+      "<p class='quit-note'>Lobiye döneceksin. Sefer <b>kaydedilir</b>: lobideki "+
+      "“Devam et” ile aynı haritada kaldığın yerden sürdürebilirsin.</p>"+
       "<button id='quit-yes'>Evet, seferden çık</button>"+
       "<button id='quit-no'>Vazgeç</button>";
     modalOverlay.classList.add("show");
     modalDuraklat();
     document.getElementById("quit-yes").addEventListener("click", function(){
+      kaydet();
       clearInterval(tickTimer); clearInterval(raidTimer); clearInterval(botTimer);
       location.reload();
     });
@@ -4253,6 +4453,10 @@
   });
 
   /* ================= Init ================= */
+  /* Her sefer kendi tohumuyla üretilir; tohum kayda giderek aynı haritanın
+     geri yüklenmesini sağlar. */
+  state.tohum=Math.floor(Math.random()*2147483647);
+  tohumAyarla(state.tohum);
   generateWorld();
   drawMap();
   renderBuildTray();
@@ -4324,6 +4528,13 @@
     tryBuild:tryBuild, tryReinforce:tryReinforce, launchNuke:launchNuke,
     invalidateRoutes:invalidateRoutes, drawMap:drawMap,
     bildir:bildir, olaylar:function(){ return state.olaylar; },
+    kaydet:kaydet, kayitOku:kayitOku, kayittanYukle:kayittanYukle, kaydiSil:kaydiSil,
+    kayitPaketle:kayitPaketle, tohumAyarla:tohumAyarla, tohumAl:tohumAl,
+    rastgele:rastgele, generateWorld:generateWorld, dunyaSifirla:dunyaSifirla,
+    komutan:komutan, seferGerekce:seferGerekce, binaBolgeEtkisi:binaBolgeEtkisi,
+    baskinDayanimi:baskinDayanimi, tryDemolish:tryDemolish,
+    binaAciklama:binaAciklama, saldiriKunye:saldiriKunye, zaferKunye:zaferKunye,
+    katmanAyarla:katmanAyarla, katmanKategori:katmanKategori,
     modAyarla:function(k){ return window.__bfSetMode(k); }
   };
 

@@ -149,7 +149,8 @@ t('T-25 ateşkesli bot saldırgan listesinden çıkıyor', () => {
 t('T-23 geçit sayacı hedefte başlar, kayıpta sıfırlanır', () => {
   const T = yeni();
   const gecitler = T.GECITLER.filter(g => g.regionId >= 0);
-  gecitler.slice(0, 4).forEach(g => { T.regions[g.regionId].owner = 'player'; });
+  const gerek = T.MODES.gecit.hedef.gerek;          // sabit sayı varsaymıyoruz
+  gecitler.slice(0, gerek).forEach(g => { T.regions[g.regionId].owner = 'player'; });
   T.state.gecitSayaci = null;
   T.gecitZaferKontrol();
   esit(T.state.gecitSayaci, T.sabitler.GECIT_TUTMA, 'sayaç başlamadı');
@@ -162,7 +163,7 @@ t('T-23 geçit sayacı hedefte başlar, kayıpta sıfırlanır', () => {
 
 t('T-23b sayaç dolunca zafer geliyor', () => {
   const T = yeni();
-  T.GECITLER.filter(g => g.regionId >= 0).slice(0, 4)
+  T.GECITLER.filter(g => g.regionId >= 0).slice(0, T.MODES.gecit.hedef.gerek)
     .forEach(g => { T.regions[g.regionId].owner = 'player'; });
   T.state.gecitSayaci = null;
   for (let i = 0; i < T.sabitler.GECIT_TUTMA + 2; i++) T.gecitZaferKontrol();

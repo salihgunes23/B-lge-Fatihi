@@ -337,7 +337,10 @@
     gecit:{
       name:"Geçit", tag:"YENİ",
       desc:"4/6 geçidi kontrol et. Rotanı koru, rakibin ikmalini kes.",
-      hedef:{tip:"gecit", gerek:4, tut:GECIT_TUTMA},
+      /* Başkent (İstanbul) zaten İstanbul Boğazı'nı tutuyor: oyuncu sefere
+         bir geçitle başlıyor ve onun vergisini alıyor. Hedef bu yüzden 5 —
+         yani gerçekten kazanılması gereken dört geçit var. */
+      hedef:{tip:"gecit", gerek:5, tut:GECIT_TUTMA},
       bots:null,
       gold:70, tick:2000, raid:24000, bot:6000
     },
@@ -1410,6 +1413,40 @@
     startFX();
   }
 
+  /* ---- Halka darbesi ----
+     Parçacık süs, halka bilgidir: "burada stratejik bir şey oldu" der ve
+     gözü oraya çeker. Azaltılmış hareket tercihinde bile çizilir — çünkü
+     bilgi taşır — yalnızca daha kısa ve sarsıntısız.
+     (şartname §09 · olay → geri bildirim eşlemesi) */
+  var halkalar=[];
+  function halkaEkle(cx, cy, renk, sayi, buyukluk){
+    var adet=sayi||1;
+    for(var i=0;i<adet;i++){
+      halkalar.push({
+        x:cx, y:cy, renk:renk||"#f0c944",
+        age:-i*260, life:REDUCED?420:700,
+        r0:4, r1:buyukluk||26
+      });
+    }
+    startFX();
+  }
+
+  function paintHalkalar(){
+    for(var i=0;i<halkalar.length;i++){
+      var h=halkalar[i];
+      if(h.age<0) continue;
+      var t=h.age/h.life;
+      if(t>1) continue;
+      ctx.globalAlpha=Math.max(0, 1-t)*0.9;
+      ctx.strokeStyle=h.renk;
+      ctx.lineWidth=t<0.5?2:1.4;
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, h.r0+(h.r1-h.r0)*t, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+  }
+
   function addFloater(cx, cy, text, color){
     floaters.push({x:cx, y:cy, text:text, color:color, age:0, life:1200});
     startFX();
@@ -1439,11 +1476,15 @@
       if(f.age>=f.life){ floaters.splice(j,1); continue; }
       f.y-=0.032*dt;
     }
+    for(var hi=halkalar.length-1;hi>=0;hi--){
+      halkalar[hi].age+=dt;
+      if(halkalar[hi].age>=halkalar[hi].life) halkalar.splice(hi,1);
+    }
     stepWorkers(dt);
     shakeMag = shakeMag>0.06 ? shakeMag*Math.pow(0.87, step) : 0;
     applyTransform();
     composite();
-    if(particles.length || floaters.length || shakeMag>0 || workers.length){
+    if(particles.length || floaters.length || halkalar.length || shakeMag>0 || workers.length){
       requestAnimationFrame(fxTick);
     } else {
       fxRunning=false; lastFX=0; applyTransform();
@@ -1706,6 +1747,20 @@
     if(workers.length) startFX();
   }
 
+  /* Hat kesilmesi sessizce olmasın: yeni kesilen her hat için bir kez
+     kritik bildirim çıkar (her turda tekrar etmez). */
+  var sonKesikSayisi=0;
+  function rotaKesilmeKontrol(){
+    if(routesDirty) rebuildRoutes();
+    var kesik=0;
+    workerRoutes.forEach(function(rt){ if(rt.durum==="kesildi") kesik++; });
+    if(kesik>sonKesikSayisi && state.started){
+      bildir(3, "⛔ Bir ticaret hattın kesildi — o üretim bölgesine kendi "+
+                "toprağından yol kalmadı. Haritada kırmızı çarpıyla işaretli.", "ikmal");
+    }
+    sonKesikSayisi=kesik;
+  }
+
   // Rota özeti: HUD ve maç sonu raporu bunu okuyor.
   function rotaDurumu(){
     if(routesDirty) rebuildRoutes();
@@ -1757,6 +1812,20 @@
       ctx.stroke();
     }
     ctx.setLineDash([]);
+
+    /* Kesik hat görünmez olmasın: üretim düğümünün üstüne kırmızı bir çarpı
+       konur. Oyuncu "neden gelirim düştü?" sorusunu haritadan cevaplar. */
+    for(var kx=0;kx<workerRoutes.length;kx++){
+      var krt=workerRoutes[kx];
+      if(krt.durum!=="kesildi" || !krt.pts.length) continue;
+      var kp=krt.pts[0];
+      ctx.strokeStyle="#e0603c"; ctx.lineWidth=1.6;
+      ctx.beginPath();
+      ctx.moveTo(kp.x-4, kp.y-4); ctx.lineTo(kp.x+4, kp.y+4);
+      ctx.moveTo(kp.x+4, kp.y-4); ctx.lineTo(kp.x-4, kp.y+4);
+      ctx.stroke();
+    }
+
     for(var j=0;j<workers.length;j++){
       var w=workers[j], rt2=workerRoutes[w.route];
       if(!rt2 || rt2.durum==="kesildi") continue;
@@ -1823,6 +1892,7 @@
 
   function paintEffects(){
     paintWorkers();
+    paintHalkalar();
     for(var i=0;i<particles.length;i++){
       var p=particles[i];
       var k=1-p.age/p.life;
@@ -2172,6 +2242,9 @@
     drawMap();
     if(region.gecit){
       var gd=gecitDurumu();
+      var gc=regionCenter(region);
+      halkaEkle(gc.x, gc.y, "#f0c944", 3, 34);      // stratejik an: üç halka
+      addShake(4);
       bildir(4, "⛰ "+region.gecit.ad+" senin"+
         (gd.gerek ? " — "+gd.tut+"/"+gd.gerek+" geçit" : ""), "gecit");
     }
@@ -3419,6 +3492,7 @@
     // Ticaret geliri artık hat SAYISINDAN değil, hatların durumundan geliyor:
     // güvenli yol tam, riskli yol az, kesik yol hiç kazandırmıyor — ve yolun
     // üstündeki her geçit geliri artırıyor.
+    rotaKesilmeKontrol();
     var rd=rotaDurumu();
     goldGain+=rd.gelir;
     state.ticaret+=rd.gelir;
@@ -3646,12 +3720,15 @@
     var c=regionCenter(target);
 
     if(def.value>=power){
-      state.gold+=PUSKURTME_ODUL;
+      /* Ödül yalnızca cephede kazanılan savunma için: başkent kuşatmasını
+         atlatmak bir zafer değil, hayatta kalmaktır. Ölçümde hiç hamle
+         yapmayan oyuncunun püskürtmelerden altın biriktirdiği görüldü. */
+      if(!lastStand) state.gold+=PUSKURTME_ODUL;
       addBurst(c.x, c.y, 10, ["#5fa87f","#cfc4a4"], 1.1, 520);
       ses("savunma");
       showToast("🛡️ "+atk.icon+" "+atk.name+" püskürtüldü! "+
         (def.notes.length?BUILDINGS[def.notes[0].key].name+" işini gördü. ":"")+
-        "(+"+PUSKURTME_ODUL+" altın)");
+        (lastStand ? "Başkent dayandı." : "(+"+PUSKURTME_ODUL+" altın)"));
       drawMap();
       return;
     }
@@ -3667,6 +3744,8 @@
         var kayip=Math.max(1, Math.round((target.garrison||0)*BASKENT_KAYIP));
         target.garrison=Math.max(0,(target.garrison||0)-kayip);
         state.baskentUyari=state.turn;
+        halkaEkle(c.x, c.y, "#e0603c", 3, 30);        // başkent nabzı
+        centerOnAnchor(target.anchor);                // gözü oraya çek
         addShake(7);
         addBurst(c.x, c.y, 30, ["#b5432f","#e0603c","#8d8266"], 2.1, 1000);
         addFloater(c.x, c.y-8, "-"+kayip+" 🪖", "#e08a72");
@@ -3702,6 +3781,7 @@
       addBurst(c.x, c.y, 34, ["#b5432f","#e0603c","#8d8266"], 2.1, 1000);
       addFloater(c.x, c.y-8, "BÖLGE DÜŞTÜ", "#e08a72");
       invalidateRoutes();
+      if(gecitMi){ halkaEkle(c.x, c.y, "#e0603c", 3, 34); }
       bildir(gecitMi?4:3,
         (gecitMi?"⛰ ":"🚨 ")+komutan(saldiranBot).ad+" "+target.name+"'i aldı — "+
         (icBaskin ? "ikmalsiz bıraktığın iç bölgeye sızdılar."
@@ -3815,10 +3895,77 @@
       reinforceTarget.defense=clamp(reinforceTarget.defense + Math.max(1,Math.round(diff.reinforceStep*0.6)), 3, 50);
       if(reinforceTarget.defense!==before) changed=true;
 
-      if(botFortify(bot, diff, owned)) changed=true;
-      if(botBotCatismasi(bot)) changed=true;
+      if(botKarar(bot, diff, owned)) changed=true;
+    });
+    if(changed) drawMap();
+  }
 
-      if(rastgele()<diff.expandChance){
+  /* ================= BOT KARAR AĞACI =================
+     Şartname §15. Bot turda TEK eylem yapar — eskiden aynı turda hem
+     takviye ediyor hem tahkim ediyor hem yayılıyordu, bu da hem okunmaz
+     hem haksız bir rakip üretiyordu. Sıra: önce tehdidi değerlendir, sonra
+     kişiliğe göre tek bir hamle seç. Bot yalnızca oyuncunun da haritada
+     görebileceği bilgiyi kullanır — hile yok. */
+  function botTehdit(bot, owned){
+    /* Cephe hattındaki oyuncu baskısı: bota komşu kendi bölgelerinin
+       toplam etkin savunması. Oyuncunun altını ya da keşfetmediği
+       tahkimatı bilinmez. */
+    var baski=0, temas=0;
+    owned.forEach(function(r){
+      r.neighbors.forEach(function(nid){
+        var n=regions[nid];
+        if(n.owner!=="player") return;
+        temas++;
+        baski+=effectiveDefense(n);
+      });
+    });
+    return {baski:baski, temas:temas,
+            guc:owned.reduce(function(a,r){ return a+r.defense; },0)};
+  }
+
+  function botTakviye(bot, diff, owned, tehditAltinda){
+    /* Tehdit varsa cephe hattını, yoksa rastgele bir ili güçlendirir. */
+    var havuz=owned;
+    if(tehditAltinda){
+      var cephe=owned.filter(function(r){
+        var yakin=false;
+        r.neighbors.forEach(function(nid){ if(regions[nid].owner==="player") yakin=true; });
+        return yakin;
+      });
+      if(cephe.length) havuz=cephe;
+    }
+    var hedef=havuz[randInt(0,havuz.length-1)];
+    var once=hedef.defense;
+    var adim=Math.max(1, Math.round(diff.reinforceStep*(tehditAltinda?1.2:0.6)));
+    hedef.defense=clamp(hedef.defense+adim, 3, 50);
+    return hedef.defense!==once;
+  }
+
+  function botKarar(bot, diff, owned){
+    var t=botTehdit(bot, owned);
+    var kom=komutan(bot);
+
+    /* 1. Tehdit değerlendirmesi: cephede oyuncu belirgin üstünse
+       genişlemek yerine hattı sağlamlaştırır. */
+    var tehditAltinda = t.temas>0 && t.baski > t.guc*0.8;
+    if(tehditAltinda){
+      // Tahkim mi takviye mi? Zor komutan tahkimatı tercih eder.
+      if(rastgele() < 0.35*(kom.tahkimCarpan||1) && botFortify(bot, diff, owned)) return true;
+      return botTakviye(bot, diff, owned, true);
+    }
+
+    /* 2. Fırsat: zayıf komşu cepheyi yutmak (bot–bot). */
+    if(botBotCatismasi(bot)) return true;
+
+    /* 3. Doktrine göre yayılma. */
+    if(rastgele()<diff.expandChance && botYayil(bot, diff, owned)) return true;
+
+    /* 4. Yayılacak yer yoksa tahkim; o da olmazsa takviye. */
+    if(rastgele() < 0.5*(kom.tahkimCarpan||1) && botFortify(bot, diff, owned)) return true;
+    return botTakviye(bot, diff, owned, false);
+  }
+
+  function botYayil(bot, diff, owned){
         /* Boş toprak bitince botlar donuyordu ve harita ölü bir dengeye
            oturuyordu (ölçümde görüldü). Belirli bir turdan sonra kaynak
            illeri de hedef olabiliyor — düşük ağırlıkla, yani oyuncunun
@@ -3865,14 +4012,14 @@
           // Geçit aldıysa daha sıkı tutuyor — oyuncu geri almak için bedel ödesin.
           target.defense=clamp(bot.power + randInt(-2,2) + (target.gecit?6:0), 3, 52);
           if(target.gecit){
+            var hc=regionCenter(target);
+            halkaEkle(hc.x, hc.y, "#e0603c", 2, 30);
             bildir(4, "⛰ "+komutan(bot).ad+" "+target.gecit.ad+"'nı aldı — geçit ağında gedik açıldı.", "gecit");
           }
-          changed=true;
           invalidateRoutes();
+          return true;
         }
-      }
-    });
-    if(changed) drawMap();
+    return false;
   }
 
   function startLoops(){

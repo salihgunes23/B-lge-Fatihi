@@ -5,7 +5,15 @@ import { oyunuYukle, kosu, esit, dogru, yakin } from './ortak.mjs';
 const {t, bitir} = kosu();
 console.log('\nBİRİM TESTLERİ — kural katmanı');
 
-const yeni = () => oyunuYukle().__bfTest;
+/* Sabit tohum: birim testleri rastgele haritaya bağlı olmamalı. Bir koşuda
+   nadiren farklı bir harita üretilip test kırılabiliyordu — kural katmanı
+   testinin harita şansına bağlı olması kabul edilemez. */
+const yeni = (tohum = 777) => {
+  const T = oyunuYukle().__bfTest;
+  T.tohumAyarla(tohum); T.state.tohum = tohum;
+  T.dunyaSifirla(); T.generateWorld();
+  return T;
+};
 
 /* Belirli sayıda geçilebilir komşusu olan bir bölge bul. */
 function bolgeBul(T, enAzKomsu){
@@ -310,6 +318,31 @@ t('Katman kategorileri geçerli değer dönüyor', () => {
       else if (c === null || typeof c !== 'string') throw new Error(k + ' katmanında geçersiz kategori');
     });
   });
+});
+
+t('Tutarsız kayıt çizimi çökertmiyor', () => {
+  /* Gerçek hata: kayıt "burası kaynak bölgesi" derken yeniden üretilen
+     dünyada karşılığı olmayınca çizim çöküyordu. */
+  const T = yeni(555);
+  T.state.started = true;
+  T.kaydet();
+  const k = T.kayitOku();
+  k.tohum = 999;                       // bilerek farklı dünya
+  dogru(T.kayittanYukle(k), 'tutarsız kayıt yüklenemedi');
+  T.drawMap();                         // çökmemeli
+  const bozuk = T.regions.filter(r => r.type === 'resource' && !r.resKind);
+  esit(bozuk.length, 0, 'kaynak türü olmayan kaynak bölgesi kaldı');
+});
+
+t('Lobi sefer kurulumu ayarları uyguluyor', () => {
+  const w = oyunuYukle();
+  const o = w.__bfSeferKur({mod: 'gecit', botSayisi: 4, zorluk: 'amansiz', tohum: 4242});
+  dogru(!!o, 'sefer kurulamadı');
+  esit(o.tohum, 4242, 'tohum uygulanmadı');
+  esit(o.komutanlar.length, 4, 'rakip sayısı uygulanmadı');
+  dogru(o.komutanlar.every(k => k.zorluk === 'Zor'), 'zorluk dağılımı uygulanmadı');
+  dogru(o.hedef.length > 10, 'hedef cümlesi üretilmedi');
+  dogru(o.gecitler.length === 6, 'geçit listesi eksik');
 });
 
 bitir();

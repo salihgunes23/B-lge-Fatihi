@@ -1237,3 +1237,123 @@ button.hud-stat:focus-visible{outline:2px solid var(--gold); outline-offset:-2px
   .hud-pill::-webkit-scrollbar{display:none;}
   .hud-stat{padding:8px 9px;}
 }
+
+/* ==========================================================================
+   v0.2 — LOBİ: SEFER AYARLARI
+   Sahte sekmeler ve mağaza kaldırıldı; yerine gerçekten dünyayı yeniden
+   üreten ayarlar ve seferin künyesi geldi. Düzen üç sütuna çıktı:
+   ayarlar · harita+modlar · rakipler+künye.
+   ========================================================================== */
+
+.cols{grid-template-columns:236px minmax(0,1fr) 288px;}
+.leftcol{display:grid; grid-template-rows:minmax(0,1fr); min-height:0;}
+
+.ayarlar{display:flex; flex-direction:column; gap:16px; overflow-y:auto;}
+.ayar-blok{display:flex; flex-direction:column; gap:7px;}
+.ayar-et{
+  font-family:var(--mono); font-size:9.5px; letter-spacing:0.16em;
+  text-transform:uppercase; color:var(--text-dim);
+}
+.secenek{display:flex; gap:6px;}
+.secenek.dikey{flex-direction:column;}
+.secenek button{
+  flex:1; display:flex; flex-direction:column; gap:2px; align-items:flex-start;
+  padding:8px 10px; cursor:pointer;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:7px;
+  color:var(--text-dim); font-family:inherit; font-size:12px; font-weight:600;
+  transition:color var(--transition-fast), border-color var(--transition-fast),
+             background var(--transition-fast);
+}
+.secenek:not(.dikey) button{align-items:center; justify-content:center;}
+.secenek button em{
+  font-style:normal; font-size:10px; font-weight:400; color:var(--text-dim); opacity:0.75;
+}
+.secenek button:hover{color:var(--text); border-color:var(--text-dim);}
+.secenek button.acik{
+  color:var(--gold); border-color:var(--gold); background:rgba(211,168,76,0.10);
+}
+.secenek button.acik em{color:var(--gold); opacity:0.8;}
+.secenek button:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
+
+.tohum-satir{display:flex; gap:6px;}
+.tohum-satir input{
+  flex:1; min-width:0; padding:8px 10px;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:7px;
+  color:var(--text); font-family:var(--mono); font-size:12px;
+}
+.tohum-satir input:focus{outline:none; border-color:var(--gold);}
+.tohum-satir button{
+  width:38px; flex-shrink:0; cursor:pointer;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:7px;
+  color:var(--text-dim); font-size:15px; line-height:1;
+}
+.tohum-satir button:hover{color:var(--gold); border-color:var(--gold);}
+.ayar-not{margin:0; font-size:10.5px; line-height:1.45; color:var(--text-dim); opacity:0.8;}
+
+/* Hedef cümlesi kahraman kartın içinde: oyuncu neyi kazanacağını
+   başlamadan önce okur. */
+.hero-hedef{
+  margin:6px 0 0; font-size:12px; line-height:1.4; color:var(--gold);
+  max-width:42ch;
+}
+
+/* Rakip komutanlar */
+.kmt{display:flex; gap:9px; padding:9px 0; border-bottom:1px solid var(--line);}
+.kmt:last-child{border-bottom:none;}
+.kmt-nokta{width:9px; height:9px; border-radius:50%; flex-shrink:0; margin-top:4px;}
+.kmt-govde{min-width:0; display:flex; flex-direction:column; gap:2px;}
+.kmt-bas{display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;}
+.kmt-bas b{font-size:12.5px; color:var(--text);}
+.kmt-bas em{
+  font-style:normal; font-family:var(--mono); font-size:9px; letter-spacing:0.1em;
+  text-transform:uppercase; color:var(--text-dim);
+}
+.kmt-zor{
+  margin-left:auto; font-family:var(--mono); font-size:9px; letter-spacing:0.08em;
+  color:var(--text-dim); border:1px solid var(--line); border-radius:4px; padding:1px 5px;
+}
+.kmt-dok{font-size:11px; color:var(--gold); font-style:italic;}
+.kmt-imza{font-size:10.5px; color:var(--text-dim); line-height:1.4;}
+
+/* Sefer künyesi */
+.kunye-liste{margin:0; display:flex; flex-direction:column;}
+.kunye-satir{
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  padding:6px 0; border-bottom:1px solid var(--line);
+}
+.kunye-satir:last-child{border-bottom:none;}
+.kunye-satir dt{font-size:11px; color:var(--text-dim);}
+.kunye-satir dd{
+  margin:0; font-size:12px; font-weight:600; color:var(--text);
+  font-variant-numeric:tabular-nums; text-align:right;
+}
+.gecit-ozet{margin-top:12px; padding-top:10px; border-top:1px solid var(--line);}
+.go-bas{
+  font-family:var(--mono); font-size:9px; letter-spacing:0.16em; text-transform:uppercase;
+  color:var(--text-dim); margin-bottom:6px;
+}
+.go-satir{
+  display:flex; align-items:baseline; gap:7px; font-size:11px;
+  padding:3px 0; color:var(--text-dim);
+}
+.go-satir b{
+  font-family:var(--mono); font-size:9.5px; color:var(--gold);
+  border:1px solid rgba(211,168,76,0.4); border-radius:4px; padding:1px 5px; flex-shrink:0;
+}
+.go-satir span{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.go-satir em{font-style:normal; color:var(--text); font-size:10.5px;}
+.go-not{font-size:11px; color:var(--text-dim); line-height:1.45;}
+
+@media (max-width:1180px){
+  .cols{grid-template-columns:minmax(0,1fr) 288px;}
+  .leftcol{grid-column:1 / -1;}
+  .ayarlar{flex-direction:row; flex-wrap:wrap; gap:14px;}
+  .ayar-blok{flex:1 1 180px;}
+  .secenek.dikey{flex-direction:row; flex-wrap:wrap;}
+  .secenek.dikey button{flex:1 1 100px;}
+}
+@media (max-width:760px){
+  .cols{grid-template-columns:1fr;}
+  .ayarlar{flex-direction:column;}
+  .secenek.dikey{flex-direction:column;}
+}

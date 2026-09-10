@@ -172,18 +172,88 @@
     }
   }
 
-  /* ---------------- Modlar ---------------- */
+  /* ---------------- Sefer ayarları ----------------
+     Lobideki her seçim motoru gerçekten yeniden kuruyor: rakip sayısı,
+     zorluk dağılımı ve harita tohumu __bfSeferKur ile dünyaya yazılıyor,
+     dönen künye de doğrudan haritadan okunuyor. Kilitli/"yakında" seçenek
+     yok — burada görünen her şey çalışıyor (şartname Faz 4, B26). */
   var modes=window.__bfModes ? window.__bfModes() : [];
   var secili=(modes.filter(function(m){return m.active;})[0]||modes[0]||{}).key;
+  var ayar={botSayisi:3, zorluk:"karisik", tohum:null};
+  var ozet=null;
+
   function mod(k){ return modes.filter(function(m){ return m.key===(k||secili); })[0]; }
   function gecitMi(m){ return !!(m && m.hedef && m.hedef.tip==="gecit"); }
+
+  /* Dünyayı seçilen ayarlarla yeniden üret ve lobiyi tazele. */
+  function seferKur(){
+    if(!window.__bfSeferKur) return;
+    ozet=window.__bfSeferKur({
+      mod:secili, botSayisi:ayar.botSayisi, zorluk:ayar.zorluk, tohum:ayar.tohum
+    });
+    if(window.__bfLobbyData) data=window.__bfLobbyData();
+    if(window.__bfModes) modes=window.__bfModes();
+    ayar.tohum=ozet?ozet.tohum:null;
+    var giris=document.getElementById("tohum-giris");
+    if(giris && ozet) giris.value=ozet.tohum;
+    ciz();
+  }
 
   function hero(){
     var m=mod(); if(!m) return;
     document.getElementById("hero-n").textContent=m.name+" Seferi";
     document.getElementById("hero-d").textContent=m.desc;
+    var hedefEl=document.getElementById("hero-hedef");
+    if(hedefEl) hedefEl.textContent=ozet ? ozet.hedef : "";
     var cv=document.getElementById("lo-hero");
     var L=olcek(cv,22); atlas(L,false); isaretler(L,gecitMi(m),0,true);
+  }
+
+  /* Rakip komutanlar: adı, doktrini, zorluğu — hepsi haritada atanmış
+     gerçek botlardan geliyor, uydurma liste değil. */
+  function komutanlar(){
+    var host=document.getElementById("komutan-liste");
+    if(!host) return;
+    if(!ozet || !ozet.komutanlar.length){ host.innerHTML=""; return; }
+    host.innerHTML=ozet.komutanlar.map(function(k){
+      return '<div class="kmt">'+
+        '<span class="kmt-nokta" style="background:'+k.renk+'"></span>'+
+        '<div class="kmt-govde">'+
+          '<div class="kmt-bas"><b>'+k.ad+'</b><em>'+k.unvan+'</em>'+
+            '<span class="kmt-zor">'+k.zorluk+'</span></div>'+
+          '<div class="kmt-dok">“'+k.doktrin+'”</div>'+
+          '<div class="kmt-imza">'+k.imza+'</div>'+
+        '</div></div>';
+    }).join("");
+  }
+
+  /* Sefer künyesi: kiminle, nerede, ne kadar sürede. */
+  function kunye(){
+    var host=document.getElementById("sefer-kunye");
+    if(!host || !ozet) return;
+    var satirlar=[
+      ["Cephe", ozet.ilSayisi+" il"],
+      ["Karargâhın", ozet.baskent],
+      ["Zafer", ozet.hedefTip==="gecit" ? ozet.gecitler.length+" geçitten "+
+        (mod()&&mod().hedef?mod().hedef.gerek:4)+" tanesi" : ozet.dusmanBaskenti],
+      ["Rakip", ozet.komutanlar.length+" ordu"],
+      ["Tempo", (ozet.tempo===1?"normal":ozet.tempo+"× hız")],
+      ["Baskın", "her "+ozet.baskinAralik+" sn"],
+      ["Açılış", ozet.acilisAltin+" altın"],
+      ["Tahminî süre", "~"+ozet.tahminiSure+" dk"]
+    ];
+    host.innerHTML=satirlar.map(function(s){
+      return "<div class='kunye-satir'><dt>"+s[0]+"</dt><dd>"+s[1]+"</dd></div>";
+    }).join("");
+
+    var gec=document.getElementById("gecit-ozet");
+    if(gec){
+      gec.innerHTML = ozet.hedefTip==="gecit"
+        ? "<div class='go-bas'>Geçitler</div>"+ozet.gecitler.map(function(g){
+            return "<div class='go-satir'><b>"+g.kisa+"</b><span>"+g.ad+"</span><em>"+g.il+"</em></div>";
+          }).join("")
+        : "<div class='go-not'>Bu modda geçitler zafer koşulu değil, ama geçiş vergisi ve savunma avantajı yine geçerli.</div>";
+    }
   }
 
   /* Öne çıkan modun dışındakiler altta: adı, kısa künyesi ve "SEÇ". */
@@ -207,9 +277,43 @@
   }
 
   function sec(key){
-    if(!window.__bfSetMode || !window.__bfSetMode(key)) return;
-    secili=key; hero(); digerleri();
+    secili=key;
+    seferKur();          // mod değişince dünya da o modun kurallarıyla kurulur
   }
+
+  /* ---------------- Ayar düğmeleri ---------------- */
+  function secenekKur(kapId, uygula){
+    var kap=document.getElementById(kapId);
+    if(!kap) return;
+    kap.addEventListener("click", function(e){
+      var b=e.target.closest ? e.target.closest("button") : null;
+      if(!b || !b.dataset.v) return;
+      var dugmeler=kap.querySelectorAll("button");
+      for(var i=0;i<dugmeler.length;i++) dugmeler[i].classList.remove("acik");
+      b.classList.add("acik");
+      uygula(b.dataset.v);
+      seferKur();
+    });
+  }
+  secenekKur("sec-bot", function(v){ ayar.botSayisi=parseInt(v,10); });
+  secenekKur("sec-zorluk", function(v){ ayar.zorluk=v; });
+
+  (function tohumKur(){
+    var giris=document.getElementById("tohum-giris");
+    var yeni=document.getElementById("tohum-yeni");
+    if(yeni){
+      yeni.addEventListener("click", function(){ ayar.tohum=null; seferKur(); });
+    }
+    if(giris){
+      var uygula=function(){
+        var v=parseInt(giris.value,10);
+        ayar.tohum = isNaN(v) ? null : v;
+        seferKur();
+      };
+      giris.addEventListener("change", uygula);
+      giris.addEventListener("keydown", function(e){ if(e.key==="Enter") uygula(); });
+    }
+  })();
 
   /* ---------------- Kimlik ---------------- */
   function sakla(k,v){
@@ -228,9 +332,10 @@
   }
 
   var tt=null;
-  function yakinda(ad){
+  function lobiToast(metin){
     var t=document.getElementById("lo-toast");
-    t.innerHTML="<b>"+ad+"</b> çok yakında.";
+    if(!t) return;
+    t.innerHTML=metin;
     t.hidden=false;
     requestAnimationFrame(function(){ t.classList.add("show"); });
     clearTimeout(tt);
@@ -238,9 +343,6 @@
   }
 
   /* ---------------- Bağlantılar ---------------- */
-  document.querySelectorAll("[data-soon]").forEach(function(b){
-    b.addEventListener("click", function(){ yakinda(b.dataset.soon); });
-  });
   /* Kaydedilmiş sefer varsa lobide "Devam et" görünür; yoksa düğme hiç
      yer kaplamaz. Sahte/kilitli seçenek göstermiyoruz (şartname B26). */
   (function devamKur(){
@@ -285,25 +387,14 @@
     var L=olcek(cv,22); atlas(L,false); isaretler(L,true,t,true);
   }
 
-  /* Mağaza önizlemeleri: uydurma kostüm görseli yerine oyunun kendi
-     verisinden iki gerçek küçük resim — renk şeridi ve paftanın minyatürü. */
-  function onizlemeler(){
-    var a=document.getElementById("onz-renk");
-    if(a){
-      var r=a.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,2);
-      a.width=Math.round(r.width*dpr); a.height=Math.round(r.height*dpr);
-      var g=a.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0);
-      var W=r.width, H=r.height, n=IL_RENK.length, w=W/n;
-      IL_RENK.forEach(function(c,i){ g.fillStyle=c; g.fillRect(i*w,0,Math.ceil(w),H); });
-    }
-    var b=document.getElementById("onz-pafta");
-    if(b && ILLER.length){
-      var L=olcek(b,4); atlas(L,true);
-    }
+  function ciz(){
+    if(!data) return;
+    hero(); digerleri(); komutanlar(); kunye();
   }
 
-  function ciz(){ if(!data) return; hero(); digerleri(); onizlemeler(); }
-  kimlik(); ciz();
+  kimlik();
+  seferKur();                    // ilk dünya lobinin ayarlarıyla kurulur
+  if(!ozet) ciz();               // motor yoksa da lobi çizilsin
   if(document.fonts && document.fonts.ready) document.fonts.ready.then(ciz);
   window.addEventListener("resize", ciz);
   if(data && !raf) raf=requestAnimationFrame(kare);

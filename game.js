@@ -254,6 +254,17 @@
   // bile anlaşılsın diye harita paletinden bağımsız, kendi ailesinde tutarlı.
   var BOT_COLORS={kolay:"#a8863f", orta:"#7a5a94", zor:"#b5432f"};
 
+  /* Lobiden gelen sefer ayarları. Sahte seçenek yok: burada değişen her
+     şeyin haritada gerçek bir karşılığı var (şartname B26). */
+  var BOT_SAYISI=3;              // 2–4
+  var ZORLUK_SECIMI=null;        // null = karışık, ya da ["orta","zor",...]
+  var ZORLUK_KALIP={
+    karisik:null,
+    dengeli:["kolay","orta","zor"],
+    sert:["orta","zor","zor"],
+    amansiz:["zor","zor","zor"]
+  };
+
   /* ================= KOMUTANLAR =================
      Anlatı katmanı (şartname §13). Üç rakip; her biri bir bot zorluğuna ve
      bir davranış imzasına bağlı. Amaç oyunu RPG'ye çevirmek değil, cepheye
@@ -803,7 +814,7 @@
   function assignBots(){
     var enemyRegions=regions.filter(function(r){ return r.id!==1 && r.type==="enemy"; });
     if(!enemyRegions.length){ bots=[]; return; }
-    var seedCount=Math.min(3, enemyRegions.length);
+    var seedCount=Math.min(BOT_SAYISI, enemyRegions.length);
     var shuffled=enemyRegions.slice().sort(function(){ return rastgele()-0.5; });
     var seeds=shuffled.slice(0, seedCount);
 
@@ -826,7 +837,9 @@
       if(!(r.id in assign)) assign[r.id]=randInt(0,seedCount-1);
     });
 
-    var diffs=BOT_DIFF_KEYS.slice().sort(function(){ return rastgele()-0.5; });
+    var diffs = ZORLUK_SECIMI && ZORLUK_SECIMI.length
+      ? ZORLUK_SECIMI.slice()
+      : BOT_DIFF_KEYS.slice().sort(function(){ return rastgele()-0.5; });
     /* Dizi yeniden atanmıyor, boşaltılıyor: kayıttan yükleme ve dışarıdan
        tutulan referanslar (lobi, testler) geçerli kalsın. */
     bots.length=0;
@@ -1857,7 +1870,10 @@
       var landmark="";
       if(reg.type==="capital") landmark="🏰";
       else if(reg.type==="enemyCapital") landmark = reg.owner==="player" ? "🏰" : "👑";
-      else if(reg.type==="resource") landmark = reg.owner==="player" ? RESOURCE_KINDS[reg.resKind].built : RESOURCE_KINDS[reg.resKind].raw;
+      else if(reg.type==="resource" && RESOURCE_KINDS[reg.resKind]){
+        landmark = reg.owner==="player" ? RESOURCE_KINDS[reg.resKind].built
+                                        : RESOURCE_KINDS[reg.resKind].raw;
+      }
 
       // Haritada gösterilecek tahkimat: düşmanınki ancak keşfedilmişse görünür.
       var shown=[];
@@ -2333,7 +2349,7 @@
     }
     if(region.type==="empty"){
       openCapturePanel(region, {cost:region.cost, icon:"🟩", label:region.name, desc:"Sahipsiz toprak. Ele geçirip genişleyebilirsin."});
-    } else if(region.type==="resource"){
+    } else if(region.type==="resource" && RESOURCE_KINDS[region.resKind]){
       var rk=RESOURCE_KINDS[region.resKind];
       openCapturePanel(region, {cost:region.cost, icon:rk.raw, label:region.name+" · "+rk.label, desc:"Ele geçirilince otomatik "+rk.built+" kurulur, +"+region.goldBonus+" altın/tur pasif üretim sağlar."});
     } else if(region.type==="enemy" || region.type==="enemyCapital"){
@@ -3929,8 +3945,13 @@
         lastExpansionBonus:state.lastExpansionBonus, olaylar:state.olaylar.slice(-20)
       },
       b:regions.map(function(r){
+        /* Tip'in yanında o tipi anlamlı kılan alanlar da saklanıyor: kaynak
+           türü, bedel ve üretim. Aksi hâlde kayıt "burası kaynak bölgesi"
+           derken yeniden üretilen dünyada karşılığı olmayabiliyor ve çizim
+           çöküyordu. */
         return {i:r.id, o:r.owner, t:r.type, g:r.garrison||0, y:r.building||null,
-                d:r.defense||null, f:(r.defenses||[]).slice(), k:r.kesif||0, c:r.scorched||0};
+                d:r.defense||null, f:(r.defenses||[]).slice(), k:r.kesif||0, c:r.scorched||0,
+                rk:r.resKind||null, bd:r.cost||null, gb:r.goldBonus||null};
       }),
       bo:bots.map(function(b){ return {i:b.id, z:b.difficulty, g:b.power, a:b.ateskes||0}; })
     };
@@ -3979,6 +4000,14 @@
         r.owner=kb.o; r.type=kb.t; r.garrison=kb.g; r.building=kb.y;
         if(kb.d!=null) r.defense=kb.d;
         r.defenses=kb.f||[]; r.kesif=kb.k||0; r.scorched=kb.c||0;
+        if(kb.rk!=null) r.resKind=kb.rk;
+        if(kb.bd!=null) r.cost=kb.bd;
+        if(kb.gb!=null) r.goldBonus=kb.gb;
+        // Tutarsız kayıt oyunu çökertmesin: kaynak türü yoksa boş toprak say.
+        if(r.type==="resource" && !RESOURCE_KINDS[r.resKind]){
+          r.type="empty"; r.resKind=null;
+          if(r.cost==null) r.cost=15+Math.floor(r.pixels.length/15);
+        }
       });
       (k.bo||[]).forEach(function(kbot){
         var b=bots[kbot.i];
@@ -4811,6 +4840,64 @@
     binaAciklama:binaAciklama, saldiriKunye:saldiriKunye, zaferKunye:zaferKunye,
     katmanAyarla:katmanAyarla, katmanKategori:katmanKategori,
     modAyarla:function(k){ return window.__bfSetMode(k); }
+  };
+
+  /* ---- Sefer kurulumu ----
+     Lobi burayı çağırır: mod, rakip sayısı, zorluk dağılımı ve harita tohumu.
+     Dünya bu ayarlarla YENİDEN üretilir; yani lobide seçilen her şey haritaya
+     birebir yansır. Sefer başladıysa artık değiştirilemez. */
+  window.__bfSeferKur=function(ayar){
+    if(state.started) return null;
+    ayar=ayar||{};
+    if(ayar.mod && MODES[ayar.mod]) activeMode=ayar.mod;
+    BOT_SAYISI=Math.max(2, Math.min(4, ayar.botSayisi||3));
+    ZORLUK_SECIMI = ayar.zorluk && ZORLUK_KALIP[ayar.zorluk] ? ZORLUK_KALIP[ayar.zorluk] : null;
+    if(ZORLUK_SECIMI){
+      // Seçilen kalıbı rakip sayısına göre uzat/kısalt.
+      var k=[];
+      for(var i=0;i<BOT_SAYISI;i++) k.push(ZORLUK_SECIMI[i % ZORLUK_SECIMI.length]);
+      ZORLUK_SECIMI=k;
+    }
+    state.tohum = (ayar.tohum!=null && !isNaN(ayar.tohum))
+      ? (ayar.tohum>>>0) : Math.floor(Math.random()*2147483647);
+
+    tohumAyarla(state.tohum);
+    dunyaSifirla();
+    generateWorld();
+
+    var m=MODES[activeMode];
+    LOOP.tick=m.tick; LOOP.raid=m.raid; LOOP.bot=m.bot;
+    state.gold=m.gold;
+    invalidateRoutes(); araziKirlet(); drawMap();
+    return window.__bfSeferOzet();
+  };
+
+  /* Lobinin gösterdiği künye: hepsi haritadan okunan gerçek değerler. */
+  window.__bfSeferOzet=function(){
+    var m=MODES[activeMode]||{};
+    var h=m.hedef||{tip:"baskent"};
+    return {
+      mod:activeMode, modAd:m.name, tohum:state.tohum,
+      hedef:zaferKunye(),
+      hedefTip:h.tip,
+      baskent:regions[0]?regions[0].name:"—",
+      dusmanBaskenti:regions[1]?regions[1].name:"—",
+      ilSayisi:REGION_COUNT,
+      gecitler:GECITLER.filter(function(g){ return g.regionId>=0; })
+                       .map(function(g){ return {ad:g.ad, kisa:g.kisa, il:regions[g.regionId].name}; }),
+      acilisAltin:m.gold,
+      tempo:(2000/m.tick),
+      baskinAralik:Math.round(m.raid/1000),
+      komutanlar:bots.map(function(b){
+        var k=komutan(b);
+        return {ad:k.ad, unvan:k.unvan, doktrin:k.doktrin, imza:k.imza,
+                zorluk:BOT_DIFF[b.difficulty].label, renk:BOT_COLORS[b.difficulty],
+                guc:b.power};
+      }),
+      tahminiSure: h.tip==="gecit"
+        ? Math.round((90+ (h.tut||GECIT_TUTMA)*3) * (m.tick/1000) / 60)
+        : Math.round(140 * (m.tick/1000) / 60)
+    };
   };
 
   window.__bfShowInstructions=function(){ showInstructions(true); };

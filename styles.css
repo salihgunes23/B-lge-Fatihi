@@ -1357,3 +1357,15 @@ button.hud-stat:focus-visible{outline:2px solid var(--gold); outline-offset:-2px
   .ayarlar{flex-direction:column;}
   .secenek.dikey{flex-direction:column;}
 }
+
+/* HUD ikonları emoji değil çizim: her platformda aynı görünür ve arayüzün
+   çizgi diliyle uyumludur (şartname §B12 · sanat yönü tutarlılığı). */
+svg.hud-ico{width:14px; height:14px; opacity:0.85; flex-shrink:0;}
+#hud-bottom svg.hud-ico{width:13px; height:13px;}
+.hud-stat.gold svg.hud-ico{color:var(--gold);}
+.hud-stat.army svg.hud-ico{color:var(--player);}
+.hud-stat.supply svg.hud-ico{color:#6fbf8f;}
+.hud-stat.supply.warn svg.hud-ico{color:var(--gold);}
+.hud-stat.supply.bad svg.hud-ico{color:var(--danger);}
+.hud-stat.gate svg.hud-ico{color:var(--gold);}
+.hud-stat.turn svg.hud-ico{color:var(--text-dim);}

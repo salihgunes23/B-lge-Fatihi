@@ -173,6 +173,43 @@
       p.rect(.43,.30,.14,.22);          // gövde
       p.line(.08,.86,.92,.86);
     },
+    /* ---- Harita nişanları ----
+       Emoji yerine çizim: emoji her platformda farklı görünüyor ve renkli
+       gliflerle oyunun piksel/pafta estetiğini bozuyordu. Bu semboller de
+       aynı birim kare kaleminden geçiyor, yani her ölçekte aynı netlikte. */
+    kale:function(p){                                   // kendi başkentin
+      p.poly([.12,.42, .12,.26, .26,.26, .26,.36, .40,.36, .40,.24,
+              .60,.24, .60,.36, .74,.36, .74,.26, .88,.26, .88,.42]);
+      p.rect(.12,.42,.76,.42);
+      p.rect(.42,.60,.16,.24);                          // kapı
+      p.line(.12,.58,.88,.58);                          // taş sırası
+    },
+    tac:function(p){                                    // düşman başkenti
+      p.poly([.12,.72, .12,.34, .30,.52, .50,.24, .70,.52, .88,.34, .88,.72]);
+      p.rect(.12,.72,.76,.14);
+      p.dot(.50,.38,.05);
+    },
+    dag:function(p){                                    // geçilmez arazi
+      p.poly([.06,.82, .34,.30, .52,.58, .62,.44, .94,.82]);
+      p.poly([.26,.48, .34,.30, .42,.48]);              // kar hattı
+      p.line(.06,.82,.94,.82);
+    },
+    maden:function(p){
+      p.line(.22,.74,.66,.30);                          // kazma sapı
+      p.arc(.66,.30,.22, Math.PI*1.05, Math.PI*1.95);   // kazma başı
+      p.poly([.16,.86, .34,.62, .54,.86]);              // cevher yığını
+    },
+    tarim:function(p){
+      p.line(.50,.88,.50,.28);                          // sap
+      p.arc(.38,.44,.16, Math.PI*1.6, Math.PI*2.4);     // başak solu
+      p.arc(.62,.44,.16, Math.PI*0.6, Math.PI*1.4);     // başak sağı
+      p.line(.20,.88,.80,.88);                          // tarla
+    },
+    orman:function(p){
+      p.poly([.50,.16, .24,.54, .76,.54]);
+      p.poly([.50,.36, .18,.76, .82,.76]);
+      p.rect(.44,.76,.12,.12);                          // gövde
+    },
     // Kent — pencereli, farklı yükseklikte binalar
     kent:function(p){
       p.rect(.08,.48,.24,.34);
@@ -238,6 +275,7 @@
     odun:{raw:"🌲", built:"🪓", label:"Orman Bölgesi"}
   };
   var RESOURCE_KEYS=Object.keys(RESOURCE_KINDS);
+  var KAYNAK_SEMBOL={maden:"maden", tarim:"tarim", odun:"orman"};
 
   /* Yayılma şansları 81 illik haritaya göre düşürüldü: eski 20 bölgeli haritada
      boş toprak azdı, burada 20+ boş il var ve botlar eski hızla oynarsa
@@ -1307,6 +1345,17 @@
     fn(symbolPen(g, x0, y0, size, Math.max(1, size*0.09)));
   }
 
+  /* Haritadaki nişan (başkent, taç, dağ, kaynak): karo yok, yalnızca
+     çizgi. Koyu bir kontur önce basılır ki her zemin üstünde okunsun. */
+  function nisanCiz(g, key, cx, cy, size, renk){
+    if(!SYMBOLS[key]) return;
+    var x0=cx-size/2, y0=cy-size/2;
+    g.strokeStyle="rgba(8,12,16,0.85)"; g.fillStyle="rgba(8,12,16,0.85)";
+    SYMBOLS[key](symbolPen(g, x0, y0, size, Math.max(1.6, size*0.19)));
+    g.strokeStyle=renk; g.fillStyle=renk;
+    SYMBOLS[key](symbolPen(g, x0, y0, size, Math.max(0.9, size*0.10)));
+  }
+
   function drawTile(g, x, y, key, size, foe){
     g.fillStyle = foe ? TILE_FILL_FOE : TILE_FILL;
     g.fillRect(x, y, size, size);
@@ -1930,20 +1979,25 @@
       if(!reg.pixels.length) continue;
       var cx=reg.anchor.x*CELL+CELL/2, cy=reg.anchor.y*CELL+CELL/2;
       if(reg.type==="obstacle"){
-        ctx.font=Math.floor(CELL*2.0)+"px sans-serif";
-        ctx.fillText("⛰️", cx, cy);
+        nisanCiz(ctx, "dag", cx, cy, CELL*3.2, "#8e93a0");
         continue;
       }
       /* Bölge işareti — referans düzen: tahkimat karoları + üstüne binen sayı rozeti.
          Asker/bayrak ikonu yok; sahiplik zaten bölge renginden okunuyor. Yalnızca
          renkle anlaşılmayan şeyler (başkent, kaynak türü) ikon olarak kalır. */
-      var landmark="";
-      if(reg.type==="capital") landmark="🏰";
-      else if(reg.type==="enemyCapital") landmark = reg.owner==="player" ? "🏰" : "👑";
-      else if(reg.type==="resource" && RESOURCE_KINDS[reg.resKind]){
-        landmark = reg.owner==="player" ? RESOURCE_KINDS[reg.resKind].built
-                                        : RESOURCE_KINDS[reg.resKind].raw;
+      var nisan=null, nisanRenk="#e6dfc9";
+      if(reg.type==="capital"){ nisan="kale"; nisanRenk="#bcd6f0"; }
+      else if(reg.type==="enemyCapital"){
+        nisan = reg.owner==="player" ? "kale" : "tac";
+        nisanRenk = reg.owner==="player" ? "#bcd6f0" : "#f0c07f";
       }
+      else if(reg.type==="resource" && KAYNAK_SEMBOL[reg.resKind]){
+        nisan = KAYNAK_SEMBOL[reg.resKind];
+        nisanRenk = reg.owner==="player" ? "#e3c887" : "#b6ab8c";
+      }
+      /* Geçit, sahiplikten bağımsız olarak haritada işaretli: oyunun tezi
+         gözle takip edilebilsin. */
+      var gecitNisan = reg.gecit ? true : false;
 
       // Haritada gösterilecek tahkimat: düşmanınki ancak keşfedilmişse görünür.
       var shown=[];
@@ -1958,10 +2012,18 @@
         if(ed>2) badgeNum=ed;
       }
 
-      // Başkent / kaynak simgesi sayacın üstünde durur.
-      if(landmark){
-        ctx.font=Math.floor(CELL*1.7)+"px sans-serif";
-        ctx.fillText(landmark, cx, cy-(shown.length||badgeNum!==null ? CELL*1.9 : 0));
+      // Başkent / kaynak nişanı sayacın üstünde durur.
+      var nisanY = cy-(shown.length||badgeNum!==null ? CELL*2.4 : 0);
+      if(nisan) nisanCiz(ctx, nisan, cx, nisanY, CELL*3.0, nisanRenk);
+      if(gecitNisan){
+        /* Geçit halkası: nişanın etrafında ince bir çember. Sahibine göre
+           renk alır, böylece "hangi geçit kimde" haritadan okunur. */
+        ctx.strokeStyle = reg.owner==="player" ? "#e3b23c"
+                        : (reg.owner==="enemy" ? "#d4834a" : "#9aa0a8");
+        ctx.lineWidth=1.2;
+        ctx.beginPath();
+        ctx.arc(cx, nisanY, CELL*2.3, 0, Math.PI*2);
+        ctx.stroke();
       }
       if(shown.length || badgeNum!==null){
         var ratio = badgeNum!==null ? badgeNum/peak : null;
